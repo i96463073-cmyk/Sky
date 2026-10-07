@@ -1,11 +1,236 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/sky_dark">
-<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
-<TextView android:text="SKY" android:textSize="34sp" android:textStyle="bold" android:textColor="@color/white" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-<TextView android:text="Your controlled AI phone agent" android:textSize="15sp" android:textColor="@color/muted" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="20dp"/>
-<com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp"><TextView android:text="AI COMMAND" android:textStyle="bold" android:textColor="@color/sky_blue" android:layout_width="wrap_content" android:layout_height="wrap_content"/><EditText android:id="@+id/commandInput" android:hint="Tell Sky what to do…" android:textColor="@color/white" android:hintTextColor="@color/muted" android:layout_width="match_parent" android:layout_height="wrap_content"/><Button android:id="@+id/runButton" android:text="Run command" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp"/></LinearLayout></com.google.android.material.card.MaterialCardView>
-<com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp"><TextView android:text="CONTROL" android:textStyle="bold" android:textColor="@color/sky_blue" android:layout_width="wrap_content" android:layout_height="wrap_content"/><com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/agentSwitch" android:text="Sky enabled" android:textColor="@color/white" android:checked="true" android:layout_width="match_parent" android:layout_height="wrap_content"/><com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/screenSwitch" android:text="Allow screen control" android:textColor="@color/white" android:layout_width="match_parent" android:layout_height="wrap_content"/><com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/typeSwitch" android:text="Allow typing" android:textColor="@color/white" android:layout_width="match_parent" android:layout_height="wrap_content"/></LinearLayout></com.google.android.material.card.MaterialCardView>
-<com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp"><LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp"><TextView android:text="DANGEROUS ACTIONS" android:textStyle="bold" android:textColor="@color/sky_blue" android:layout_width="wrap_content" android:layout_height="wrap_content"/><com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/callSwitch" android:text="Calling: ask before action" android:textColor="@color/white" android:checked="true" android:layout_width="match_parent" android:layout_height="wrap_content"/><com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/paymentSwitch" android:text="Payments: always ask" android:textColor="@color/white" android:checked="true" android:layout_width="match_parent" android:layout_height="wrap_content"/><com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/tradeSwitch" android:text="MT5 trading: OFF" android:textColor="@color/white" android:checked="false" android:layout_width="match_parent" android:layout_height="wrap_content"/></LinearLayout></com.google.android.material.card.MaterialCardView>
-<Button android:id="@+id/stopButton" android:text="STOP SKY NOW" android:textStyle="bold" android:layout_width="match_parent" android:layout_height="56dp" android:backgroundTint="#C62828"/>
-<TextView android:id="@+id/status" android:text="Status: Ready" android:textColor="@color/muted" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp"/>
-</LinearLayout></ScrollView>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dark">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:text="SKY"
+            android:textSize="34sp"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:text="Your controlled AI phone agent"
+            android:textSize="15sp"
+            android:textColor="@color/muted"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:text="AI COMMAND"
+                    android:textStyle="bold"
+                    android:textColor="@color/sky_blue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+
+                <EditText
+                    android:id="@+id/commandInput"
+                    android:hint="Tell Sky what to do."
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/muted"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <Button
+                    android:id="@+id/runButton"
+                    android:text="Run command"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:text="CONTROL"
+                    android:textStyle="bold"
+                    android:textColor="@color/sky_blue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:text="AI Assistant"
+                        android:textColor="@color/white"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/aiSwitch"
+                        android:text="Sky enabled"
+                        android:checked="true"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:text="Allow screen control"
+                        android:textColor="@color/white"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/screenSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:text="Allow typing"
+                        android:textColor="@color/white"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/typeSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:text="DANGEROUS ACTIONS"
+                    android:textStyle="bold"
+                    android:textColor="@color/sky_blue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:text="Calling — ask before action"
+                        android:textColor="@color/white"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/callSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:text="Payments — always ask"
+                        android:textColor="@color/white"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/paymentSwitch"
+                        android:checked="true"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:text="MT5 trading — OFF"
+                        android:textColor="@color/white"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/tradeSwitch"
+                        android:checked="false"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <Button
+            android:id="@+id/stopButton"
+            android:text="STOP SKY NOW"
+            android:textStyle="bold"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:backgroundTint="#C62828" />
+
+        <TextView
+            android:id="@+id/status"
+            android:text="Status: Ready"
+            android:textColor="@color/muted"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp" />
+
+    </LinearLayout>
+</ScrollView>
