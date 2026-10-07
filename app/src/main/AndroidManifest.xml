@@ -5,6 +5,26 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- Android 11+ : declare which apps Sky is allowed to see and launch -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.android.chrome" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.android.settings" />
+        <package android:name="com.samsung.android.messaging" />
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.android.dialer" />
+        <package android:name="com.samsung.android.dialer" />
+        <package android:name="com.android.camera" />
+        <package android:name="com.sec.android.app.camera" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.gm" />
+    </queries>
+
     <application
         android:theme="@style/Theme.SkyAI"
         android:label="Sky AI"
