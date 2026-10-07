@@ -2,6 +2,7 @@ package com.sky.agent
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.RecognizerIntent
@@ -221,6 +222,24 @@ class MainActivity : AppCompatActivity() {
             wantsOpen && text.contains("telegram") -> {
                 openApp("org.telegram.messenger", "Telegram", status)
             }
+            wantsOpen && text.contains("youtube") -> {
+                openApp("com.google.android.youtube", "YouTube", status)
+            }
+            wantsOpen && text.contains("camera") -> {
+                openApp("com.sec.android.app.camera", "Camera", status)
+            }
+            wantsOpen && text.contains("instagram") -> {
+                openApp("com.instagram.android", "Instagram", status)
+            }
+            wantsOpen && text.contains("facebook") -> {
+                openApp("com.facebook.katana", "Facebook", status)
+            }
+            wantsOpen && text.contains("spotify") -> {
+                openApp("com.spotify.music", "Spotify", status)
+            }
+            wantsOpen && text.contains("gmail") -> {
+                openApp("com.google.android.gm", "Gmail", status)
+            }
             wantsOpen && text.contains("setting") -> {
                 try {
                     startActivity(Intent(Settings.ACTION_SETTINGS))
@@ -428,17 +447,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --------------------------------
-    // OPEN APP
+    // OPEN APP (with URL-scheme fallback)
     // --------------------------------
     private fun openApp(packageName: String, appName: String, status: TextView) {
         try {
+            // 1) Try package launch intent
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
             if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(launchIntent)
                 updateStatus(status, "Opening $appName.")
-            } else {
-                updateStatus(status, "$appName is not installed.")
+                return
             }
+
+            // 2) Fallback: try known URL scheme
+            val schemeUrl = when (packageName) {
+                "com.whatsapp", "com.whatsapp.w4b" -> "whatsapp://send"
+                "com.android.chrome" -> "https://www.google.com"
+                "org.telegram.messenger" -> "tg://resolve"
+                "com.instagram.android" -> "instagram://app"
+                "com.facebook.katana" -> "fb://feed"
+                "com.spotify.music" -> "spotify://"
+                "com.google.android.youtube" -> "vnd.youtube://"
+                else -> null
+            }
+
+            if (schemeUrl != null) {
+                try {
+                    val schemeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(schemeUrl))
+                    schemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(schemeIntent)
+                    updateStatus(status, "Opening $appName.")
+                    return
+                } catch (_: Exception) {
+                    // fall through to error below
+                }
+            }
+
+            updateStatus(status, "$appName is not installed.")
+
         } catch (e: Exception) {
             updateStatus(status, "Could not open $appName.")
         }
