@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.skyai.app.R
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -26,6 +27,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_SPEECH = 1001
+        private const val BACKEND_BASE =
+            "https://sky-ai-backend.i96463073.workers.dev"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -154,17 +157,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --------------------------------
-    // NORMALIZE + MATCH HELPERS
+    // HELPERS
     // --------------------------------
     private fun normalize(input: String): String {
         return input.lowercase()
             .replace(Regex("[^a-z0-9 ]"), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
-    }
-
-    private fun hasWord(text: String, word: String): Boolean {
-        return text.split(" ").any { it == word }
     }
 
     private fun hasAny(text: String, vararg phrases: String): Boolean {
@@ -178,7 +177,6 @@ class MainActivity : AppCompatActivity() {
 
         val text = normalize(command)
 
-        // A "want open" verb used for app-launch commands
         val wantsOpen = hasAny(
             text,
             "open", "launch", "start", "run", "show", "go to"
@@ -186,25 +184,7 @@ class MainActivity : AppCompatActivity() {
 
         when {
 
-            // ---------- Greetings (canned, until AI is live) ----------
-            text == "hello" || text == "hi" || text == "hey" ||
-            text == "hello sky" || text == "hi sky" || text == "hey sky" -> {
-                updateStatus(status, "Hello. I am Sky. Say help to see what I can do.")
-            }
-
-            text.contains("thank you") || text == "thanks" -> {
-                updateStatus(status, "You are welcome.")
-            }
-
-            text.contains("who are you") || text.contains("what are you") -> {
-                updateStatus(
-                    status,
-                    "I am Sky, your controlled phone assistant. " +
-                    "I can open apps, read the screen, tap text, and type for you."
-                )
-            }
-
-            // ---------- Backend ----------
+            // ---------- Backend test ----------
             hasAny(text, "test backend", "test sky", "check backend", "check sky") -> {
                 testSkyBackend(status)
             }
@@ -216,9 +196,8 @@ class MainActivity : AppCompatActivity() {
                 updateStatus(
                     status,
                     "You can say: open whatsapp, open chrome, open settings, " +
-                    "accessibility settings, go back, go home, read the screen, " +
-                    "tap followed by a word on screen, type followed by text, " +
-                    "test backend, or stop."
+                    "go back, go home, read the screen, tap a word, type text, " +
+                    "test backend, or stop. You can also just talk to me normally."
                 )
             }
 
@@ -232,22 +211,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // ---------- WhatsApp ----------
+            // ---------- Apps ----------
             wantsOpen && text.contains("whatsapp") -> {
                 openApp("com.whatsapp", "WhatsApp", status)
             }
-
-            // ---------- Chrome ----------
             wantsOpen && (text.contains("chrome") || text.contains("browser")) -> {
                 openApp("com.android.chrome", "Chrome", status)
             }
-
-            // ---------- Telegram (bonus) ----------
             wantsOpen && text.contains("telegram") -> {
                 openApp("org.telegram.messenger", "Telegram", status)
             }
-
-            // ---------- Phone settings ----------
             wantsOpen && text.contains("setting") -> {
                 try {
                     startActivity(Intent(Settings.ACTION_SETTINGS))
@@ -356,35 +329,88 @@ class MainActivity : AppCompatActivity() {
                 updateStatus(status, "Emergency stop. Sky is disabled.")
             }
 
-            // ---------- Fallback ----------
+            // ---------- Fallback: real AI chat ----------
             else -> {
-                updateStatus(
-                    status,
-                    "I do not understand that yet. Say help to see my commands."
-                )
-                Toast.makeText(
-                    this,
-                    "Sky heard: $command",
-                    Toast.LENGTH_SHORT
-                ).show()
+                chatWithBackend(command, status)
             }
         }
     }
 
     // --------------------------------
-    // BACKEND TEST
+    // AI CHAT VIA BACKEND
+    // --------------------------------
+    private fun chatWithBackend(message: String, status: TextView) {
+        updateStatus(status, "Thinking...")
+        thread {
+            try {
+                val url = URL("$BACKEND_BASE/chat")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 15000
+                conn.readTimeout = 25000
+                conn.doOutput = true
+                conn.setRequestProperty(
+                    "Content-Type",
+                    "application/json; charset=utf-8"
+                )
+
+                val body = JSONObject().put("message", message).toString()
+                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+                val responseCode = conn.responseCode
+                val stream =
+                    if (responseCode in 200..299) conn.inputStream
+                    else conn.errorStream
+                val responseText =
+                    stream?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+
+                runOnUiThread {
+                    if (responseCode in 200..299) {
+                        try {
+                            val obj = JSONObject(responseText)
+                            val reply = obj.optString("reply", "").trim()
+                            if (reply.isEmpty()) {
+                                updateStatus(status, "No reply from Sky.")
+                            } else {
+                                updateStatus(status, reply)
+                            }
+                        } catch (e: Exception) {
+                            updateStatus(status, "Bad reply from backend.")
+                        }
+                    } else {
+                        val detail = try {
+                            JSONObject(responseText)
+                                .optString("error", "HTTP $responseCode")
+                        } catch (_: Exception) {
+                            "HTTP $responseCode"
+                        }
+                        updateStatus(status, "Backend error: $detail")
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    updateStatus(status, "Network error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    // --------------------------------
+    // BACKEND HEALTH TEST
     // --------------------------------
     private fun testSkyBackend(status: TextView) {
         updateStatus(status, "Connecting to backend.")
         thread {
             try {
-                val url = URL("https://sky-ai-backend.i96463073.workers.dev/health")
+                val url = URL("$BACKEND_BASE/health")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
                 val responseCode = connection.responseCode
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val response =
+                    connection.inputStream.bufferedReader().use { it.readText() }
                 connection.disconnect()
                 runOnUiThread {
                     if (responseCode == 200) {
