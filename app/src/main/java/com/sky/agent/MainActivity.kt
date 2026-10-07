@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.skyai.app.R
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -21,7 +22,7 @@ class MainActivity : AppCompatActivity() {
 
         val commandInput = findViewById<EditText>(R.id.commandInput)
         val status = findViewById<TextView>(R.id.status)
-        val agentSwitch = findViewById<SwitchMaterial>(R.id.agentSwitch)
+        val agentSwitch = findViewById<SwitchMaterial>(R.id.aiSwitch)
         val tradeSwitch = findViewById<SwitchMaterial>(R.id.tradeSwitch)
 
         val runButton = findViewById<Button>(R.id.runButton)
@@ -79,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         when {
 
             // --------------------------------
-            // TEST CLOUDflare BACKEND
+            // TEST CLOUDFLARE BACKEND
             // --------------------------------
 
             text == "test backend" ||
@@ -247,8 +248,7 @@ class MainActivity : AppCompatActivity() {
 
             // --------------------------------
             // TAP TEXT
-            // Example:
-            // "tap search"
+            // Example: "tap search"
             // --------------------------------
 
             text.startsWith("tap ") -> {
@@ -291,8 +291,7 @@ class MainActivity : AppCompatActivity() {
 
             // --------------------------------
             // TYPE TEXT
-            // Example:
-            // "type hello"
+            // Example: "type hello"
             // --------------------------------
 
             text.startsWith("type ") -> {
@@ -357,7 +356,7 @@ class MainActivity : AppCompatActivity() {
                 status.text =
                     """
                     Sky can currently:
-                    
+
                     • Test Cloudflare backend
                     • Open WhatsApp
                     • Open Chrome
@@ -369,7 +368,7 @@ class MainActivity : AppCompatActivity() {
                     • Tap visible text
                     • Type text
                     • Emergency Stop
-                    
+
                     More abilities are coming.
                     """.trimIndent()
             }
@@ -393,7 +392,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --------------------------------
-    // CLOUDflare BACKEND CONNECTION
+    // CLOUDFLARE BACKEND CONNECTION
     // --------------------------------
 
     private fun testSkyBackend(status: TextView) {
