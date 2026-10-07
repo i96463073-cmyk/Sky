@@ -9,6 +9,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.switchmaterial.SwitchMaterial
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -74,6 +77,17 @@ class MainActivity : AppCompatActivity() {
         val text = command.lowercase().trim()
 
         when {
+
+            // --------------------------------
+            // TEST CLOUDflare BACKEND
+            // --------------------------------
+
+            text == "test backend" ||
+            text == "test sky" ||
+            text == "check backend" -> {
+
+                testSkyBackend(status)
+            }
 
             // --------------------------------
             // OPEN WHATSAPP
@@ -344,6 +358,7 @@ class MainActivity : AppCompatActivity() {
                     """
                     Sky can currently:
                     
+                    • Test Cloudflare backend
                     • Open WhatsApp
                     • Open Chrome
                     • Open Settings
@@ -376,6 +391,69 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    // --------------------------------
+    // CLOUDflare BACKEND CONNECTION
+    // --------------------------------
+
+    private fun testSkyBackend(status: TextView) {
+
+        status.text =
+            "Status: Connecting to Sky backend..."
+
+        thread {
+
+            try {
+
+                val url = URL(
+                    "https://sky-ai-backend.i96463073.workers.dev/health"
+                )
+
+                val connection =
+                    url.openConnection() as HttpURLConnection
+
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                val responseCode =
+                    connection.responseCode
+
+                val response =
+                    connection.inputStream
+                        .bufferedReader()
+                        .use { it.readText() }
+
+                connection.disconnect()
+
+                runOnUiThread {
+
+                    if (responseCode == 200) {
+
+                        status.text =
+                            "Status: Sky backend connected ✅\n$response"
+
+                    } else {
+
+                        status.text =
+                            "Status: Backend error ($responseCode)"
+                    }
+                }
+
+            } catch (e: Exception) {
+
+                runOnUiThread {
+
+                    status.text =
+                        "Status: Connection failed ❌\n${e.message}"
+                }
+            }
+        }
+    }
+
+    // --------------------------------
+    // OPEN APP
+    // --------------------------------
 
     private fun openApp(
         packageName: String,
