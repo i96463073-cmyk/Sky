@@ -20,8 +20,12 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.skyai.app.R
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
 
@@ -33,10 +37,12 @@ class MainActivity : AppCompatActivity() {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
+    private val actionTimestamps = mutableListOf<Long>()
+    private val maxActionsPerHour = 20
+
     companion object {
         private const val REQUEST_SPEECH = 1001
         private const val REQUEST_MIC_PERMISSION = 2001
-        private const val REQUEST_NOTIF_PERMISSION = 2002
         private const val BACKEND_BASE =
             "https://sky-ai-backend.i96463073.workers.dev"
     }
@@ -80,7 +86,7 @@ class MainActivity : AppCompatActivity() {
                 commandInput.error = "Enter a command"
                 return@setOnClickListener
             }
-            processCommand(command)
+            dispatch(command)
         }
 
         micButton.setOnClickListener {
@@ -100,11 +106,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         wakeSwitch.setOnCheckedChangeListener { _, checked ->
-            if (checked) {
-                requestPermissionsThenStartWake()
-            } else {
-                stopWakeService()
-            }
+            if (checked) requestPermissionsThenStartWake() else stopWakeService()
         }
 
         tradeSwitch.setOnCheckedChangeListener { button, checked ->
@@ -135,9 +137,9 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // --------------------------------
+    // ================================
     // WAKE SERVICE
-    // --------------------------------
+    // ================================
     private fun requestPermissionsThenStartWake() {
         val needNotif = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -154,9 +156,7 @@ class MainActivity : AppCompatActivity() {
 
         if (requests.isNotEmpty()) {
             ActivityCompat.requestPermissions(
-                this,
-                requests.toTypedArray(),
-                REQUEST_MIC_PERMISSION
+                this, requests.toTypedArray(), REQUEST_MIC_PERMISSION
             )
         } else {
             startWakeService()
@@ -189,18 +189,16 @@ class MainActivity : AppCompatActivity() {
             val micOk = ContextCompat.checkSelfPermission(
                 this, Manifest.permission.RECORD_AUDIO
             ) == PackageManager.PERMISSION_GRANTED
-            if (micOk) {
-                startWakeService()
-            } else {
+            if (micOk) startWakeService() else {
                 wakeSwitch.isChecked = false
                 updateStatus("Microphone permission is required for the wake word.")
             }
         }
     }
 
-    // --------------------------------
+    // ================================
     // VOICE INPUT
-    // --------------------------------
+    // ================================
     private fun startVoiceInput() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         intent.putExtra(
@@ -214,8 +212,7 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(intent, REQUEST_SPEECH)
         } catch (e: Exception) {
             Toast.makeText(
-                this,
-                "Voice input is not available on this device",
+                this, "Voice input is not available",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -231,14 +228,31 @@ class MainActivity : AppCompatActivity() {
             if (!spoken.isNullOrEmpty()) {
                 val commandInput = findViewById<EditText>(R.id.commandInput)
                 commandInput.setText(spoken)
-                processCommand(spoken)
+                dispatch(spoken)
             }
         }
     }
 
-    // --------------------------------
+    // ================================
+    // DISPATCH (local emergency first)
+    // ================================
+    private fun dispatch(command: String) {
+        val text = command.lowercase().trim()
+        // Emergency stop handled locally — instant, no network
+        if (text == "stop" || text == "stop sky" || text == "emergency stop") {
+            agentSwitch.isChecked = false
+            wakeSwitch.isChecked = false
+            stopWakeService()
+            try { tts?.stop() } catch (_: Exception) {}
+            updateStatus("Emergency stop. Sky is disabled.")
+            return
+        }
+        sendToAI(command)
+    }
+
+    // ================================
     // STATUS + SPEAK
-    // --------------------------------
+    // ================================
     private fun updateStatus(message: String) {
         statusView.text = message
         if (ttsReady) {
@@ -248,256 +262,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --------------------------------
-    // HELPERS
-    // --------------------------------
-    private fun normalize(input: String): String {
-        return input.lowercase()
-            .replace(Regex("[^a-z0-9 ]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
-
-    private fun hasAny(text: String, vararg phrases: String): Boolean {
-        return phrases.any { text.contains(it) }
-    }
-
-    // --------------------------------
-    // INSTALLED APPS INFO
-    // --------------------------------
-    private fun getUserInstalledApps(): List<Pair<String, String>> {
-        val pm = packageManager
-        val flags = android.content.pm.PackageManager.GET_META_DATA
-        val packages = pm.getInstalledPackages(flags)
-        val result = mutableListOf<Pair<String, String>>()
-        for (pkg in packages) {
-            val appInfo = pkg.applicationInfo ?: continue
-            val isSystem = (appInfo.flags and
-                android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
-            if (isSystem) continue
-            if (pkg.packageName == packageName) continue
-            val label = pm.getApplicationLabel(appInfo).toString()
-            result.add(label to pkg.packageName)
-        }
-        return result.sortedBy { it.first.lowercase() }
-    }
-
-    private fun answerAppCount() {
-        try {
-            val apps = getUserInstalledApps()
-            updateStatus("You have ${apps.size} installed apps.")
-        } catch (e: Exception) {
-            updateStatus("Could not read installed apps.")
-        }
-    }
-
-    private fun answerAppList() {
-        try {
-            val apps = getUserInstalledApps()
-            if (apps.isEmpty()) {
-                updateStatus("I could not find any installed apps.")
-                return
-            }
-            val names = apps.joinToString(", ") { it.first }
-            updateStatus("You have ${apps.size} apps: $names")
-        } catch (e: Exception) {
-            updateStatus("Could not read installed apps.")
-        }
-    }
-
-    // --------------------------------
-    // COMMAND ROUTER
-    // --------------------------------
-    private fun processCommand(command: String) {
-
-        val text = normalize(command)
-
-        val wantsOpen = hasAny(
-            text,
-            "open", "launch", "start", "run", "show", "go to"
-        )
-
-        when {
-
-            text.contains("how many apps") ||
-            text.contains("number of apps") ||
-            text.contains("count my apps") ||
-            text.contains("how many applications") -> {
-                answerAppCount()
-            }
-
-            text.contains("list my apps") ||
-            text.contains("list apps") ||
-            text.contains("what apps do i have") ||
-            text.contains("which apps do i have") ||
-            text.contains("show my apps") ||
-            text.contains("my installed apps") -> {
-                answerAppList()
-            }
-
-            hasAny(text, "test backend", "test sky", "check backend", "check sky") -> {
-                testSkyBackend()
-            }
-
-            text == "help" ||
-            text.contains("what can you do") ||
-            text.contains("what can i say") -> {
-                updateStatus(
-                    "You can say: open whatsapp, open chrome, open settings, " +
-                    "go back, go home, read the screen, tap a word, type text, " +
-                    "how many apps do I have, list my apps, test backend, or stop. " +
-                    "You can also just talk to me normally."
-                )
-            }
-
-            text.contains("accessibility") -> {
-                try {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    updateStatus("Opening accessibility settings.")
-                } catch (e: Exception) {
-                    updateStatus("Could not open accessibility settings.")
-                }
-            }
-
-            wantsOpen && text.contains("whatsapp") -> {
-                openApp("com.whatsapp", "WhatsApp")
-            }
-            wantsOpen && (text.contains("chrome") || text.contains("browser")) -> {
-                openApp("com.android.chrome", "Chrome")
-            }
-            wantsOpen && text.contains("telegram") -> {
-                openApp("org.telegram.messenger", "Telegram")
-            }
-            wantsOpen && text.contains("youtube") -> {
-                openApp("com.google.android.youtube", "YouTube")
-            }
-            wantsOpen && text.contains("camera") -> {
-                openApp("com.sec.android.app.camera", "Camera")
-            }
-            wantsOpen && text.contains("instagram") -> {
-                openApp("com.instagram.android", "Instagram")
-            }
-            wantsOpen && text.contains("facebook") -> {
-                openApp("com.facebook.katana", "Facebook")
-            }
-            wantsOpen && text.contains("spotify") -> {
-                openApp("com.spotify.music", "Spotify")
-            }
-            wantsOpen && text.contains("gmail") -> {
-                openApp("com.google.android.gm", "Gmail")
-            }
-            wantsOpen && text.contains("setting") -> {
-                try {
-                    startActivity(Intent(Settings.ACTION_SETTINGS))
-                    updateStatus("Opening settings.")
-                } catch (e: Exception) {
-                    updateStatus("Could not open settings.")
-                }
-            }
-
-            text == "go back" || text == "back" ||
-            text == "press back" || text.contains("go back") -> {
-                val service = SkyAccessibilityService.instance
-                if (service != null) {
-                    service.goBack()
-                    updateStatus("Going back.")
-                } else {
-                    updateStatus("Accessibility service is off.")
-                }
-            }
-
-            text == "go home" || text == "home" ||
-            text == "press home" || text.contains("go home") ||
-            text.contains("home screen") -> {
-                val service = SkyAccessibilityService.instance
-                if (service != null) {
-                    service.goHome()
-                    updateStatus("Going home.")
-                } else {
-                    updateStatus("Accessibility service is off.")
-                }
-            }
-
-            text.contains("read screen") ||
-            text.contains("read the screen") ||
-            text.contains("what is on screen") ||
-            text.contains("what's on screen") -> {
-                val service = SkyAccessibilityService.instance
-                if (service != null) {
-                    val screenText = service.readScreen()
-                    if (screenText.isBlank()) {
-                        updateStatus("No readable text on screen.")
-                    } else {
-                        updateStatus("The screen says: $screenText")
-                    }
-                } else {
-                    updateStatus("Accessibility service is off.")
-                }
-            }
-
-            text.startsWith("tap ") || text.startsWith("click ") ||
-            text.contains(" tap ") -> {
-                val target = text
-                    .replaceFirst("tap ", "")
-                    .replaceFirst("click ", "")
-                    .substringAfter(" tap ", "")
-                    .trim()
-                if (target.isEmpty()) {
-                    updateStatus("Tell me what to tap.")
-                } else {
-                    val service = SkyAccessibilityService.instance
-                    if (service != null) {
-                        val success = service.tapText(target)
-                        updateStatus(
-                            if (success) "Tapped $target."
-                            else "Could not find $target on screen."
-                        )
-                    } else {
-                        updateStatus("Accessibility service is off.")
-                    }
-                }
-            }
-
-            text.startsWith("type ") || text.contains(" type ") -> {
-                val value = text
-                    .replaceFirst("type ", "")
-                    .substringAfter(" type ", "")
-                    .trim()
-                if (value.isEmpty()) {
-                    updateStatus("Tell me what to type.")
-                } else {
-                    val service = SkyAccessibilityService.instance
-                    if (service != null) {
-                        val success = service.typeText(value)
-                        updateStatus(
-                            if (success) "Typed it."
-                            else "Could not type."
-                        )
-                    } else {
-                        updateStatus("Accessibility service is off.")
-                    }
-                }
-            }
-
-            text == "stop" || text == "stop sky" ||
-            text == "emergency stop" || text.contains("stop sky") -> {
-                agentSwitch.isChecked = false
-                wakeSwitch.isChecked = false
-                stopWakeService()
-                try { tts?.stop() } catch (_: Exception) {}
-                updateStatus("Emergency stop. Sky is disabled.")
-            }
-
-            else -> {
-                chatWithBackend(command)
-            }
-        }
-    }
-
-    // --------------------------------
-    // AI CHAT VIA BACKEND
-    // --------------------------------
-    private fun chatWithBackend(message: String) {
+    // ================================
+    // AI CALL
+    // ================================
+    private fun sendToAI(message: String) {
         updateStatus("Thinking...")
         thread {
             try {
@@ -508,86 +276,216 @@ class MainActivity : AppCompatActivity() {
                 conn.readTimeout = 25000
                 conn.doOutput = true
                 conn.setRequestProperty(
-                    "Content-Type",
-                    "application/json; charset=utf-8"
+                    "Content-Type", "application/json; charset=utf-8"
                 )
-
                 val body = JSONObject().put("message", message).toString()
-                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                conn.outputStream.use {
+                    it.write(body.toByteArray(Charsets.UTF_8))
+                }
 
                 val responseCode = conn.responseCode
-                val stream =
-                    if (responseCode in 200..299) conn.inputStream
-                    else conn.errorStream
+                val stream = if (responseCode in 200..299) conn.inputStream
+                             else conn.errorStream
                 val responseText =
                     stream?.bufferedReader()?.use { it.readText() } ?: ""
                 conn.disconnect()
 
                 runOnUiThread {
-                    if (responseCode in 200..299) {
-                        try {
-                            val obj = JSONObject(responseText)
-                            val reply = obj.optString("reply", "").trim()
-                            if (reply.isEmpty()) {
-                                updateStatus("No reply from Sky.")
-                            } else {
-                                updateStatus(reply)
-                            }
-                        } catch (e: Exception) {
-                            updateStatus("Bad reply from backend.")
-                        }
-                    } else {
+                    if (responseCode !in 200..299) {
                         val detail = try {
                             JSONObject(responseText)
                                 .optString("error", "HTTP $responseCode")
-                        } catch (_: Exception) {
-                            "HTTP $responseCode"
-                        }
+                        } catch (_: Exception) { "HTTP $responseCode" }
                         updateStatus("Backend error: $detail")
+                        return@runOnUiThread
+                    }
+
+                    try {
+                        val obj = JSONObject(responseText)
+                        val reply = obj.optString("reply", "").trim()
+                        val action = if (obj.isNull("action")) null
+                                     else obj.optJSONObject("action")
+
+                        if (reply.isNotEmpty()) updateStatus(reply)
+                        else updateStatus("Okay.")
+
+                        if (action != null) {
+                            executeAction(action)
+                        }
+                    } catch (e: Exception) {
+                        updateStatus("Bad reply from backend.")
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    updateStatus("Network error: ${e.message}")
-                }
+                runOnUiThread { updateStatus("Network error: ${e.message}") }
             }
         }
     }
 
-    // --------------------------------
-    // BACKEND HEALTH TEST
-    // --------------------------------
-    private fun testSkyBackend() {
-        updateStatus("Connecting to backend.")
-        thread {
-            try {
-                val url = URL("$BACKEND_BASE/health")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
-                val responseCode = connection.responseCode
-                val response =
-                    connection.inputStream.bufferedReader().use { it.readText() }
-                connection.disconnect()
-                runOnUiThread {
-                    if (responseCode == 200) {
-                        updateStatus("Backend connected. $response")
-                    } else {
-                        updateStatus("Backend error $responseCode.")
+    // ================================
+    // ACTION EXECUTOR
+    // ================================
+    private fun executeAction(action: JSONObject) {
+        val type = action.optString("type", "").trim()
+        if (type.isEmpty()) return
+
+        // Rate limit
+        val now = System.currentTimeMillis()
+        actionTimestamps.removeAll { now - it > 60L * 60L * 1000L }
+        if (actionTimestamps.size >= maxActionsPerHour) {
+            updateStatus("Action limit reached for this hour. Try again later.")
+            return
+        }
+        actionTimestamps.add(now)
+
+        // Log
+        logAction(type, action.toString())
+
+        try {
+            when (type) {
+
+                "OPEN_APP" -> {
+                    val query = action.optString("query", "").trim()
+                    if (query.isEmpty()) {
+                        updateStatus("No app specified.")
+                        return
                     }
+                    val pkg = resolvePackage(query)
+                    if (pkg != null) openApp(pkg, query)
+                    else openAppByQuery(query)
                 }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    updateStatus("Connection failed. ${e.message}")
+
+                "SEARCH_WEB" -> {
+                    val q = action.optString("query", "").trim()
+                    if (q.isEmpty()) { updateStatus("Nothing to search."); return }
+                    val intent = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://www.google.com/search?q=" +
+                            URLEncoder.encode(q, "UTF-8"))
+                    )
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
                 }
+
+                "WHATSAPP_MESSAGE" -> {
+                    val to = action.optString("to", "").trim()
+                    val msg = action.optString("message", "").trim()
+                    openWhatsAppMessage(to, msg)
+                }
+
+                "SEND_SMS" -> {
+                    val to = action.optString("to", "").trim()
+                    val msg = action.optString("message", "").trim()
+                    openSmsMessage(to, msg)
+                }
+
+                "READ_SCREEN" -> {
+                    val service = SkyAccessibilityService.instance
+                    if (service == null) {
+                        updateStatus("Accessibility service is off.")
+                        return
+                    }
+                    val screenText = service.readScreen()
+                    if (screenText.isBlank()) updateStatus("No readable text on screen.")
+                    else updateStatus("The screen says: $screenText")
+                }
+
+                "GO_BACK" -> {
+                    val service = SkyAccessibilityService.instance
+                    if (service != null) {
+                        service.goBack()
+                        updateStatus("Going back.")
+                    } else updateStatus("Accessibility service is off.")
+                }
+
+                "GO_HOME" -> {
+                    val service = SkyAccessibilityService.instance
+                    if (service != null) {
+                        service.goHome()
+                        updateStatus("Going home.")
+                    } else updateStatus("Accessibility service is off.")
+                }
+
+                "TAP" -> {
+                    val target = action.optString("target", "").trim()
+                    if (target.isEmpty()) { updateStatus("Nothing to tap."); return }
+                    val service = SkyAccessibilityService.instance
+                    if (service == null) {
+                        updateStatus("Accessibility service is off.")
+                        return
+                    }
+                    val ok = service.tapText(target)
+                    updateStatus(if (ok) "Tapped $target."
+                                else "Could not find $target on screen.")
+                }
+
+                "TYPE" -> {
+                    val text = action.optString("text", "").trim()
+                    if (text.isEmpty()) { updateStatus("Nothing to type."); return }
+                    val service = SkyAccessibilityService.instance
+                    if (service == null) {
+                        updateStatus("Accessibility service is off.")
+                        return
+                    }
+                    val ok = service.typeText(text)
+                    updateStatus(if (ok) "Typed it." else "Could not type.")
+                }
+
+                else -> updateStatus("Unknown action: $type")
             }
+        } catch (e: Exception) {
+            updateStatus("Action failed: ${e.message}")
         }
     }
 
-    // --------------------------------
-    // OPEN APP
-    // --------------------------------
+    // ================================
+    // APP RESOLUTION
+    // ================================
+    private fun resolvePackage(friendly: String): String? {
+        val map = mapOf(
+            "whatsapp" to "com.whatsapp",
+            "chrome" to "com.android.chrome",
+            "browser" to "com.android.chrome",
+            "settings" to "com.android.settings",
+            "telegram" to "org.telegram.messenger",
+            "youtube" to "com.google.android.youtube",
+            "camera" to "com.sec.android.app.camera",
+            "instagram" to "com.instagram.android",
+            "facebook" to "com.facebook.katana",
+            "spotify" to "com.spotify.music",
+            "gmail" to "com.google.android.gm"
+        )
+        val key = friendly.lowercase().trim()
+        map[key]?.let { return it }
+        for ((name, pkg) in map) if (key.contains(name)) return pkg
+        return null
+    }
+
+    private fun openAppByQuery(query: String) {
+        // Try to find an installed app matching the query by label
+        try {
+            val pm = packageManager
+            val packages = pm.getInstalledPackages(0)
+            val lower = query.lowercase()
+            for (pkg in packages) {
+                val info = pkg.applicationInfo ?: continue
+                val label = pm.getApplicationLabel(info).toString().lowercase()
+                if (label == lower || label.contains(lower)) {
+                    val launch = pm.getLaunchIntentForPackage(pkg.packageName)
+                    if (launch != null) {
+                        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(launch)
+                        updateStatus("Opening $query.")
+                        return
+                    }
+                }
+            }
+            updateStatus("Could not find $query.")
+        } catch (e: Exception) {
+            updateStatus("Could not open $query.")
+        }
+    }
+
     private fun openApp(packageName: String, appName: String) {
         try {
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
@@ -597,33 +495,63 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Opening $appName.")
                 return
             }
-
-            val schemeUrl = when (packageName) {
-                "com.whatsapp", "com.whatsapp.w4b" -> "whatsapp://send"
-                "com.android.chrome" -> "https://www.google.com"
-                "org.telegram.messenger" -> "tg://resolve"
-                "com.instagram.android" -> "instagram://app"
-                "com.facebook.katana" -> "fb://feed"
-                "com.spotify.music" -> "spotify://"
-                "com.google.android.youtube" -> "vnd.youtube://"
-                else -> null
-            }
-
-            if (schemeUrl != null) {
-                try {
-                    val schemeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(schemeUrl))
-                    schemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(schemeIntent)
-                    updateStatus("Opening $appName.")
-                    return
-                } catch (_: Exception) {
-                }
-            }
-
             updateStatus("$appName is not installed.")
-
         } catch (e: Exception) {
             updateStatus("Could not open $appName.")
         }
+    }
+
+    // ================================
+    // WHATSAPP / SMS DRAFTS
+    // ================================
+    private fun openWhatsAppMessage(to: String, message: String) {
+        val encodedMsg = URLEncoder.encode(message, "UTF-8")
+        val normalizedTo = to.replace(Regex("[^0-9+]"), "")
+        val url = if (normalizedTo.isNotEmpty() && normalizedTo.length >= 7) {
+            "https://wa.me/$normalizedTo?text=$encodedMsg"
+        } else {
+            "https://wa.me/?text=$encodedMsg"
+        }
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            updateStatus("WhatsApp ready. Tap Send to deliver.")
+        } catch (e: Exception) {
+            try {
+                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(
+                    "whatsapp://send?text=$encodedMsg"
+                ))
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(fallback)
+                updateStatus("WhatsApp ready. Choose recipient and tap Send.")
+            } catch (e2: Exception) {
+                updateStatus("WhatsApp is not installed.")
+            }
+        }
+    }
+
+    private fun openSmsMessage(to: String, message: String) {
+        val encodedMsg = URLEncoder.encode(message, "UTF-8")
+        val uri = Uri.parse("smsto:$to?body=$encodedMsg")
+        try {
+            val intent = Intent(Intent.ACTION_SENDTO, uri)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            updateStatus("SMS ready. Tap Send to deliver.")
+        } catch (e: Exception) {
+            updateStatus("Could not open SMS app.")
+        }
+    }
+
+    // ================================
+    // ACTION LOG
+    // ================================
+    private fun logAction(type: String, detail: String) {
+        try {
+            val file = File(filesDir, "sky_action_log.txt")
+            val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            file.appendText("[$ts] $type — $detail\n")
+        } catch (_: Exception) {}
     }
 }
