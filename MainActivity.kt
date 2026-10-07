@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
-        // MT5 trading remains locked.
+        // MT5 execution remains locked.
         tradeSwitch.setOnCheckedChangeListener { button, checked ->
             if (checked) {
                 button.isChecked = false
@@ -75,7 +75,10 @@ class MainActivity : AppCompatActivity() {
 
         when {
 
-            // WhatsApp
+            // --------------------------------
+            // OPEN WHATSAPP
+            // --------------------------------
+
             text.contains("open whatsapp") ||
             text.contains("launch whatsapp") -> {
 
@@ -86,7 +89,10 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            // Chrome
+            // --------------------------------
+            // OPEN CHROME
+            // --------------------------------
+
             text.contains("open chrome") ||
             text.contains("launch chrome") -> {
 
@@ -97,26 +103,37 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            // Android Settings
+            // --------------------------------
+            // OPEN SETTINGS
+            // --------------------------------
+
             text.contains("open settings") ||
             text.contains("launch settings") -> {
 
                 try {
+
                     startActivity(
                         Intent(Settings.ACTION_SETTINGS)
                     )
 
-                    status.text = "Status: Opening Settings"
+                    status.text =
+                        "Status: Opening Settings"
 
                 } catch (e: Exception) {
-                    status.text = "Status: Could not open Settings"
+
+                    status.text =
+                        "Status: Could not open Settings"
                 }
             }
 
-            // Accessibility settings
+            // --------------------------------
+            // ACCESSIBILITY SETTINGS
+            // --------------------------------
+
             text.contains("accessibility settings") -> {
 
                 try {
+
                     startActivity(
                         Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     )
@@ -125,25 +142,201 @@ class MainActivity : AppCompatActivity() {
                         "Status: Opening Accessibility Settings"
 
                 } catch (e: Exception) {
+
                     status.text =
                         "Status: Could not open Accessibility Settings"
                 }
             }
 
-            // Stop command
+            // --------------------------------
+            // GO BACK
+            // --------------------------------
+
+            text == "go back" ||
+            text == "back" ||
+            text == "press back" -> {
+
+                val service =
+                    SkyAccessibilityService.instance
+
+                if (service != null) {
+
+                    service.goBack()
+
+                    status.text =
+                        "Status: Going back"
+
+                } else {
+
+                    status.text =
+                        "Status: Accessibility Service is OFF"
+                }
+            }
+
+            // --------------------------------
+            // GO HOME
+            // --------------------------------
+
+            text == "go home" ||
+            text == "home" ||
+            text == "press home" -> {
+
+                val service =
+                    SkyAccessibilityService.instance
+
+                if (service != null) {
+
+                    service.goHome()
+
+                    status.text =
+                        "Status: Going Home"
+
+                } else {
+
+                    status.text =
+                        "Status: Accessibility Service is OFF"
+                }
+            }
+
+            // --------------------------------
+            // READ SCREEN
+            // --------------------------------
+
+            text == "read screen" ||
+            text == "read the screen" -> {
+
+                val service =
+                    SkyAccessibilityService.instance
+
+                if (service != null) {
+
+                    val screenText =
+                        service.readScreen()
+
+                    if (screenText.isBlank()) {
+
+                        status.text =
+                            "Status: No readable text found"
+
+                    } else {
+
+                        status.text =
+                            "Screen:\n$screenText"
+                    }
+
+                } else {
+
+                    status.text =
+                        "Status: Accessibility Service is OFF"
+                }
+            }
+
+            // --------------------------------
+            // TAP TEXT
+            // Example:
+            // "tap search"
+            // --------------------------------
+
+            text.startsWith("tap ") -> {
+
+                val target =
+                    command.substringAfter(
+                        "tap ",
+                        ""
+                    ).trim()
+
+                if (target.isEmpty()) {
+
+                    status.text =
+                        "Status: Tell Sky what to tap"
+
+                } else {
+
+                    val service =
+                        SkyAccessibilityService.instance
+
+                    if (service != null) {
+
+                        val success =
+                            service.tapText(target)
+
+                        status.text =
+                            if (success) {
+                                "Status: Tapped \"$target\""
+                            } else {
+                                "Status: Could not find \"$target\""
+                            }
+
+                    } else {
+
+                        status.text =
+                            "Status: Accessibility Service is OFF"
+                    }
+                }
+            }
+
+            // --------------------------------
+            // TYPE TEXT
+            // Example:
+            // "type hello"
+            // --------------------------------
+
+            text.startsWith("type ") -> {
+
+                val value =
+                    command.substringAfter(
+                        "type ",
+                        ""
+                    ).trim()
+
+                if (value.isEmpty()) {
+
+                    status.text =
+                        "Status: Tell Sky what to type"
+
+                } else {
+
+                    val service =
+                        SkyAccessibilityService.instance
+
+                    if (service != null) {
+
+                        val success =
+                            service.typeText(value)
+
+                        status.text =
+                            if (success) {
+                                "Status: Typed text"
+                            } else {
+                                "Status: Could not type text"
+                            }
+
+                    } else {
+
+                        status.text =
+                            "Status: Accessibility Service is OFF"
+                    }
+                }
+            }
+
+            // --------------------------------
+            // STOP SKY
+            // --------------------------------
+
             text == "stop sky" ||
             text == "stop" ||
             text == "emergency stop" -> {
 
-                findViewById<SwitchMaterial>(
-                    R.id.agentSwitch
-                ).isChecked = false
+                agentSwitch.isChecked = false
 
                 status.text =
                     "Status: EMERGENCY STOP — Sky disabled"
             }
 
-            // Help
+            // --------------------------------
+            // HELP
+            // --------------------------------
+
             text == "help" ||
             text.contains("what can you do") -> {
 
@@ -155,13 +348,21 @@ class MainActivity : AppCompatActivity() {
                     • Open Chrome
                     • Open Settings
                     • Open Accessibility Settings
-                    • Stop itself
+                    • Go Back
+                    • Go Home
+                    • Read the screen
+                    • Tap visible text
+                    • Type text
+                    • Emergency Stop
                     
                     More abilities are coming.
                     """.trimIndent()
             }
 
-            // Unknown command
+            // --------------------------------
+            // UNKNOWN COMMAND
+            // --------------------------------
+
             else -> {
 
                 status.text =
@@ -198,7 +399,6 @@ class MainActivity : AppCompatActivity() {
 
                 status.text =
                     "Status: $appName is not installed"
-
             }
 
         } catch (e: Exception) {
