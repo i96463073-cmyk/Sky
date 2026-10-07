@@ -23,7 +23,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var agentSwitch: SwitchMaterial
     private var tts: TextToSpeech? = null
     private var ttsReady = false
-    private var voiceEnabled = true
 
     companion object {
         private const val REQUEST_SPEECH = 1001
@@ -33,7 +32,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // ---- Text-to-Speech engine ----
         tts = TextToSpeech(this) { code ->
             if (code == TextToSpeech.SUCCESS) {
                 try {
@@ -61,7 +59,7 @@ class MainActivity : AppCompatActivity() {
         runButton.setOnClickListener {
             val command = commandInput.text.toString().trim()
             if (!agentSwitch.isChecked) {
-                updateStatus(status, "Status: Sky is OFF")
+                updateStatus(status, "Sky is off")
                 return@setOnClickListener
             }
             if (command.isEmpty()) {
@@ -73,7 +71,7 @@ class MainActivity : AppCompatActivity() {
 
         micButton.setOnClickListener {
             if (!agentSwitch.isChecked) {
-                updateStatus(status, "Status: Sky is OFF")
+                updateStatus(status, "Sky is off")
                 return@setOnClickListener
             }
             startVoiceInput()
@@ -82,18 +80,17 @@ class MainActivity : AppCompatActivity() {
         stopButton.setOnClickListener {
             agentSwitch.isChecked = false
             try { tts?.stop() } catch (_: Exception) {}
-            updateStatus(status, "Status: EMERGENCY STOP — Sky disabled")
+            updateStatus(status, "Emergency stop. Sky is disabled.")
         }
 
-        // MT5 execution remains locked.
         tradeSwitch.setOnCheckedChangeListener { button, checked ->
             if (checked) {
                 button.isChecked = false
-                updateStatus(status, "Status: MT5 execution is locked for now")
+                updateStatus(status, "MT5 execution is locked for now.")
             }
         }
 
-        updateStatus(status, "Status: Ready")
+        updateStatus(status, "Sky is ready.")
     }
 
     override fun onDestroy() {
@@ -149,14 +146,29 @@ class MainActivity : AppCompatActivity() {
     // --------------------------------
     private fun updateStatus(status: TextView, message: String) {
         status.text = message
-        if (voiceEnabled && ttsReady) {
-            val spoken = message
-                .removePrefix("Status: ")
-                .replace("\n", ". ")
+        if (ttsReady) {
             try {
-                tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
+                tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
             } catch (_: Exception) {}
         }
+    }
+
+    // --------------------------------
+    // NORMALIZE + MATCH HELPERS
+    // --------------------------------
+    private fun normalize(input: String): String {
+        return input.lowercase()
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun hasWord(text: String, word: String): Boolean {
+        return text.split(" ").any { it == word }
+    }
+
+    private fun hasAny(text: String, vararg phrases: String): Boolean {
+        return phrases.any { text.contains(it) }
     }
 
     // --------------------------------
@@ -164,143 +176,197 @@ class MainActivity : AppCompatActivity() {
     // --------------------------------
     private fun processCommand(command: String, status: TextView) {
 
-        val text = command.lowercase().trim()
+        val text = normalize(command)
+
+        // A "want open" verb used for app-launch commands
+        val wantsOpen = hasAny(
+            text,
+            "open", "launch", "start", "run", "show", "go to"
+        )
 
         when {
 
-            text == "test backend" ||
-            text == "test sky" ||
-            text == "check backend" -> {
+            // ---------- Greetings (canned, until AI is live) ----------
+            text == "hello" || text == "hi" || text == "hey" ||
+            text == "hello sky" || text == "hi sky" || text == "hey sky" -> {
+                updateStatus(status, "Hello. I am Sky. Say help to see what I can do.")
+            }
+
+            text.contains("thank you") || text == "thanks" -> {
+                updateStatus(status, "You are welcome.")
+            }
+
+            text.contains("who are you") || text.contains("what are you") -> {
+                updateStatus(
+                    status,
+                    "I am Sky, your controlled phone assistant. " +
+                    "I can open apps, read the screen, tap text, and type for you."
+                )
+            }
+
+            // ---------- Backend ----------
+            hasAny(text, "test backend", "test sky", "check backend", "check sky") -> {
                 testSkyBackend(status)
             }
 
-            text.contains("open whatsapp") ||
-            text.contains("launch whatsapp") -> {
+            // ---------- Help ----------
+            text == "help" ||
+            text.contains("what can you do") ||
+            text.contains("what can i say") -> {
+                updateStatus(
+                    status,
+                    "You can say: open whatsapp, open chrome, open settings, " +
+                    "accessibility settings, go back, go home, read the screen, " +
+                    "tap followed by a word on screen, type followed by text, " +
+                    "test backend, or stop."
+                )
+            }
+
+            // ---------- Accessibility settings ----------
+            text.contains("accessibility") -> {
+                try {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    updateStatus(status, "Opening accessibility settings.")
+                } catch (e: Exception) {
+                    updateStatus(status, "Could not open accessibility settings.")
+                }
+            }
+
+            // ---------- WhatsApp ----------
+            wantsOpen && text.contains("whatsapp") -> {
                 openApp("com.whatsapp", "WhatsApp", status)
             }
 
-            text.contains("open chrome") ||
-            text.contains("launch chrome") -> {
+            // ---------- Chrome ----------
+            wantsOpen && (text.contains("chrome") || text.contains("browser")) -> {
                 openApp("com.android.chrome", "Chrome", status)
             }
 
-            text.contains("open settings") ||
-            text.contains("launch settings") -> {
+            // ---------- Telegram (bonus) ----------
+            wantsOpen && text.contains("telegram") -> {
+                openApp("org.telegram.messenger", "Telegram", status)
+            }
+
+            // ---------- Phone settings ----------
+            wantsOpen && text.contains("setting") -> {
                 try {
                     startActivity(Intent(Settings.ACTION_SETTINGS))
-                    updateStatus(status, "Status: Opening Settings")
+                    updateStatus(status, "Opening settings.")
                 } catch (e: Exception) {
-                    updateStatus(status, "Status: Could not open Settings")
+                    updateStatus(status, "Could not open settings.")
                 }
             }
 
-            text.contains("accessibility settings") -> {
-                try {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    updateStatus(status, "Status: Opening Accessibility Settings")
-                } catch (e: Exception) {
-                    updateStatus(status, "Status: Could not open Accessibility Settings")
-                }
-            }
-
-            text == "go back" ||
-            text == "back" ||
-            text == "press back" -> {
+            // ---------- Go back ----------
+            text == "go back" || text == "back" ||
+            text == "press back" || text.contains("go back") -> {
                 val service = SkyAccessibilityService.instance
                 if (service != null) {
                     service.goBack()
-                    updateStatus(status, "Status: Going back")
+                    updateStatus(status, "Going back.")
                 } else {
-                    updateStatus(status, "Status: Accessibility Service is OFF")
+                    updateStatus(status, "Accessibility service is off.")
                 }
             }
 
-            text == "go home" ||
-            text == "home" ||
-            text == "press home" -> {
+            // ---------- Go home ----------
+            text == "go home" || text == "home" ||
+            text == "press home" || text.contains("go home") ||
+            text.contains("home screen") -> {
                 val service = SkyAccessibilityService.instance
                 if (service != null) {
                     service.goHome()
-                    updateStatus(status, "Status: Going Home")
+                    updateStatus(status, "Going home.")
                 } else {
-                    updateStatus(status, "Status: Accessibility Service is OFF")
+                    updateStatus(status, "Accessibility service is off.")
                 }
             }
 
-            text == "read screen" ||
-            text == "read the screen" -> {
+            // ---------- Read screen ----------
+            text.contains("read screen") ||
+            text.contains("read the screen") ||
+            text.contains("what is on screen") ||
+            text.contains("what's on screen") -> {
                 val service = SkyAccessibilityService.instance
                 if (service != null) {
                     val screenText = service.readScreen()
                     if (screenText.isBlank()) {
-                        updateStatus(status, "Status: No readable text found")
+                        updateStatus(status, "No readable text on screen.")
                     } else {
-                        updateStatus(status, "Screen: $screenText")
+                        updateStatus(status, "The screen says: $screenText")
                     }
                 } else {
-                    updateStatus(status, "Status: Accessibility Service is OFF")
+                    updateStatus(status, "Accessibility service is off.")
                 }
             }
 
-            text.startsWith("tap ") -> {
-                val target = command.substringAfter("tap ", "").trim()
+            // ---------- Tap X ----------
+            text.startsWith("tap ") || text.startsWith("click ") ||
+            text.contains(" tap ") -> {
+                val target = text
+                    .replaceFirst("tap ", "")
+                    .replaceFirst("click ", "")
+                    .substringAfter(" tap ", "")
+                    .trim()
                 if (target.isEmpty()) {
-                    updateStatus(status, "Status: Tell Sky what to tap")
+                    updateStatus(status, "Tell me what to tap.")
                 } else {
                     val service = SkyAccessibilityService.instance
                     if (service != null) {
                         val success = service.tapText(target)
                         updateStatus(
                             status,
-                            if (success) "Status: Tapped $target"
-                            else "Status: Could not find $target"
+                            if (success) "Tapped $target."
+                            else "Could not find $target on screen."
                         )
                     } else {
-                        updateStatus(status, "Status: Accessibility Service is OFF")
+                        updateStatus(status, "Accessibility service is off.")
                     }
                 }
             }
 
-            text.startsWith("type ") -> {
-                val value = command.substringAfter("type ", "").trim()
+            // ---------- Type X ----------
+            text.startsWith("type ") || text.contains(" type ") -> {
+                val value = text
+                    .replaceFirst("type ", "")
+                    .substringAfter(" type ", "")
+                    .trim()
                 if (value.isEmpty()) {
-                    updateStatus(status, "Status: Tell Sky what to type")
+                    updateStatus(status, "Tell me what to type.")
                 } else {
                     val service = SkyAccessibilityService.instance
                     if (service != null) {
                         val success = service.typeText(value)
                         updateStatus(
                             status,
-                            if (success) "Status: Typed text"
-                            else "Status: Could not type text"
+                            if (success) "Typed it."
+                            else "Could not type."
                         )
                     } else {
-                        updateStatus(status, "Status: Accessibility Service is OFF")
+                        updateStatus(status, "Accessibility service is off.")
                     }
                 }
             }
 
-            text == "stop sky" ||
-            text == "stop" ||
-            text == "emergency stop" -> {
+            // ---------- Stop ----------
+            text == "stop" || text == "stop sky" ||
+            text == "emergency stop" || text.contains("stop sky") -> {
                 agentSwitch.isChecked = false
                 try { tts?.stop() } catch (_: Exception) {}
-                updateStatus(status, "Status: EMERGENCY STOP — Sky disabled")
+                updateStatus(status, "Emergency stop. Sky is disabled.")
             }
 
-            text == "help" ||
-            text.contains("what can you do") -> {
+            // ---------- Fallback ----------
+            else -> {
                 updateStatus(
                     status,
-                    "Status: Sky can open apps, read the screen, tap text, " +
-                    "type text, go home or back, test the backend, and stop on command. " +
-                    "Say or type a command to begin."
+                    "I do not understand that yet. Say help to see my commands."
                 )
-            }
-
-            else -> {
-                updateStatus(status, "Status: I don't understand that command yet.")
-                Toast.makeText(this, "Sky received: $command", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    "Sky heard: $command",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
@@ -309,7 +375,7 @@ class MainActivity : AppCompatActivity() {
     // BACKEND TEST
     // --------------------------------
     private fun testSkyBackend(status: TextView) {
-        updateStatus(status, "Status: Connecting to Sky backend...")
+        updateStatus(status, "Connecting to backend.")
         thread {
             try {
                 val url = URL("https://sky-ai-backend.i96463073.workers.dev/health")
@@ -322,14 +388,14 @@ class MainActivity : AppCompatActivity() {
                 connection.disconnect()
                 runOnUiThread {
                     if (responseCode == 200) {
-                        updateStatus(status, "Status: Sky backend connected. $response")
+                        updateStatus(status, "Backend connected. $response")
                     } else {
-                        updateStatus(status, "Status: Backend error $responseCode")
+                        updateStatus(status, "Backend error $responseCode.")
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    updateStatus(status, "Status: Connection failed. ${e.message}")
+                    updateStatus(status, "Connection failed. ${e.message}")
                 }
             }
         }
@@ -343,12 +409,12 @@ class MainActivity : AppCompatActivity() {
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
             if (launchIntent != null) {
                 startActivity(launchIntent)
-                updateStatus(status, "Status: Opening $appName")
+                updateStatus(status, "Opening $appName.")
             } else {
-                updateStatus(status, "Status: $appName is not installed")
+                updateStatus(status, "$appName is not installed.")
             }
         } catch (e: Exception) {
-            updateStatus(status, "Status: Could not open $appName")
+            updateStatus(status, "Could not open $appName.")
         }
     }
 }
