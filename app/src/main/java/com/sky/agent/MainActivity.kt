@@ -16,13 +16,15 @@ import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var agentSwitch: SwitchMaterial
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         val commandInput = findViewById<EditText>(R.id.commandInput)
         val status = findViewById<TextView>(R.id.status)
-        val agentSwitch = findViewById<SwitchMaterial>(R.id.aiSwitch)
+        agentSwitch = findViewById(R.id.aiSwitch)
         val tradeSwitch = findViewById<SwitchMaterial>(R.id.tradeSwitch)
 
         val runButton = findViewById<Button>(R.id.runButton)
