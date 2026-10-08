@@ -2,6 +2,9 @@ package com.sky.agent
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -18,6 +21,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.skyai.app.R
@@ -40,17 +44,21 @@ class MainActivity : AppCompatActivity() {
     private var ttsReady = false
 
     private val actionTimestamps = mutableListOf<Long>()
-    private val maxActionsPerHour = 60
+    private val maxActionsPerHour = 200
 
     companion object {
         private const val REQUEST_SPEECH = 1001
         private const val REQUEST_MIC_PERMISSION = 2001
         private const val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
+        private const val TAP_CHANNEL_ID = "sky_taps"
+        private const val TAP_NOTIF_ID = 9001
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        createTapChannel()
 
         tts = TextToSpeech(this) { code ->
             if (code == TextToSpeech.SUCCESS) {
@@ -393,13 +401,14 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("No app specified.")
                 return 300L
             }
+            notifyTap("Opening " + q)
             val pkg = resolvePackage(q)
             if (pkg != null) {
                 openApp(pkg, q)
             } else {
                 openAppByQuery(q)
             }
-            return 1800L
+            return 2500L
         }
 
         if (type == "SEARCH_WEB") {
@@ -408,6 +417,7 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Nothing to search.")
                 return 300L
             }
+            notifyTap("Searching: " + q)
             val intent = Intent(
                 Intent.ACTION_VIEW,
                 Uri.parse(
@@ -417,23 +427,25 @@ class MainActivity : AppCompatActivity() {
             )
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
-            return 1800L
+            return 2200L
         }
 
         if (type == "WHATSAPP_MESSAGE") {
+            notifyTap("WhatsApp draft")
             openWhatsAppMessage(
                 action.optString("to", "").trim(),
                 action.optString("message", "").trim()
             )
-            return 1500L
+            return 2000L
         }
 
         if (type == "SEND_SMS") {
+            notifyTap("SMS draft")
             openSmsMessage(
                 action.optString("to", "").trim(),
                 action.optString("message", "").trim()
             )
-            return 1500L
+            return 2000L
         }
 
         if (type == "READ_SCREEN") {
@@ -452,15 +464,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (type == "GO_BACK") {
+            notifyTap("Back")
             SkyAccessibilityService.instance?.goBack()
             updateStatus("Going back.")
-            return 800L
+            return 1200L
         }
 
         if (type == "GO_HOME") {
+            notifyTap("Home")
             SkyAccessibilityService.instance?.goHome()
             updateStatus("Going home.")
-            return 800L
+            return 1200L
         }
 
         if (type == "TAP") {
@@ -474,13 +488,14 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Nothing to tap.")
                 return 300L
             }
+            notifyTap("Tap: " + target)
             val ok = svc.tapText(target)
             if (ok) {
                 updateStatus("Tapped " + target + ".")
             } else {
                 updateStatus("Could not find " + target + ".")
             }
-            return 900L
+            return 2000L
         }
 
         if (type == "TYPE") {
@@ -494,13 +509,34 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Nothing to type.")
                 return 300L
             }
+            notifyTap("Type: " + txt.take(40))
             val ok = svc.typeText(txt)
             if (ok) {
                 updateStatus("Typed.")
             } else {
                 updateStatus("Could not type.")
             }
-            return 900L
+            return 1200L
+        }
+
+        if (type == "SCROLL_DOWN") {
+            notifyTap("Scroll down")
+            SkyAccessibilityService.instance?.scrollDown()
+            updateStatus("Scrolling down.")
+            return 1200L
+        }
+
+        if (type == "SCROLL_UP") {
+            notifyTap("Scroll up")
+            SkyAccessibilityService.instance?.scrollUp()
+            updateStatus("Scrolling up.")
+            return 1200L
+        }
+
+        if (type == "WAIT") {
+            val ms = action.optLong("ms", 1500L)
+            updateStatus("Waiting...")
+            return ms
         }
 
         updateStatus("Unknown action: " + type)
@@ -612,6 +648,43 @@ class MainActivity : AppCompatActivity() {
             updateStatus("SMS ready. Tap Send.")
         } catch (e: Exception) {
             updateStatus("Could not open SMS.")
+        }
+    }
+
+    // ---------- TAP NOTIFICATIONS ----------
+    private fun createTapChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(
+                TAP_CHANNEL_ID,
+                "Sky Actions",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows what Sky is doing"
+            }
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(ch)
+        }
+    }
+
+    private fun notifyTap(label: String) {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            val pi = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val notif = NotificationCompat.Builder(this, TAP_CHANNEL_ID)
+                .setContentTitle("Sky: " + label)
+                .setContentText("Tap STOP SKY NOW to halt.")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .setOngoing(false)
+                .setOnlyAlertOnce(true)
+                .build()
+            nm.notify(TAP_NOTIF_ID, notif)
+        } catch (e: Exception) {
         }
     }
 
