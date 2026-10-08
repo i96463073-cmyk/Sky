@@ -2,29 +2,34 @@ package com.sky.agent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.concurrent.Executors
 
 class SkyAccessibilityService : AccessibilityService() {
 
     companion object {
         var instance: SkyAccessibilityService? = null
+        private const val TAG = "SkyA11y"
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Log.d(TAG, "Accessibility service connected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // not used
     }
 
     override fun onInterrupt() {
-        // not used
     }
 
     override fun onDestroy() {
@@ -66,7 +71,6 @@ class SkyAccessibilityService : AccessibilityService() {
         val lower = target.lowercase().trim()
         if (lower.isEmpty()) return false
 
-        // 1. Exact match
         val exact = find(root) { node ->
             val t = node.text?.toString()?.lowercase()?.trim().orEmpty()
             val d = node.contentDescription?.toString()?.lowercase()?.trim().orEmpty()
@@ -74,7 +78,6 @@ class SkyAccessibilityService : AccessibilityService() {
         }
         if (tryClick(exact)) return true
 
-        // 2. Contains (substring)
         val contains = find(root) { node ->
             val t = node.text?.toString()?.lowercase().orEmpty()
             val d = node.contentDescription?.toString()?.lowercase().orEmpty()
@@ -87,7 +90,6 @@ class SkyAccessibilityService : AccessibilityService() {
 
     private fun tryClick(nodes: List<AccessibilityNodeInfo>): Boolean {
         for (node in nodes) {
-            // Try clickable ancestor
             var current: AccessibilityNodeInfo? = node
             while (current != null) {
                 if (current.isClickable) {
@@ -97,16 +99,10 @@ class SkyAccessibilityService : AccessibilityService() {
                 }
                 current = current.parent
             }
-            // Fallback: tap center of node bounds via gesture
             val rect = Rect()
             node.getBoundsInScreen(rect)
             if (!rect.isEmpty) {
-                val path = Path()
-                path.moveTo(rect.exactCenterX(), rect.exactCenterY())
-                val gesture = GestureDescription.Builder()
-                    .addStroke(GestureDescription.StrokeDescription(path, 0L, 50L))
-                    .build()
-                if (dispatchGesture(gesture, null, null)) return true
+                if (tapAt(rect.exactCenterX(), rect.exactCenterY())) return true
             }
         }
         return false
@@ -130,6 +126,57 @@ class SkyAccessibilityService : AccessibilityService() {
         if (predicate(node)) out.add(node)
         for (i in 0 until node.childCount) {
             walkFind(node.getChild(i), predicate, out)
+        }
+    }
+
+    // ---------- TAP AT COORDINATES ----------
+    fun tapAt(x: Float, y: Float): Boolean {
+        return try {
+            val path = Path()
+            path.moveTo(x, y)
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, 80L))
+                .build()
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "tapAt failed", e)
+            false
+        }
+    }
+
+    // ---------- SCREENSHOT ----------
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+    fun takeScreenshot(callback: (Bitmap?) -> Unit) {
+        try {
+            val executor = Executors.newSingleThreadExecutor()
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                executor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(result: ScreenshotResult) {
+                        try {
+                            val hw = Bitmap.wrapHardwareBuffer(
+                                result.hardwareBuffer,
+                                result.colorSpace
+                            )
+                            val copy = hw?.copy(Bitmap.Config.ARGB_8888, false)
+                            result.hardwareBuffer.close()
+                            callback(copy)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Screenshot wrap failed", e)
+                            callback(null)
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        Log.e(TAG, "Screenshot failed code=$errorCode")
+                        callback(null)
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "takeScreenshot threw", e)
+            callback(null)
         }
     }
 
