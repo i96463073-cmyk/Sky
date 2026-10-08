@@ -78,7 +78,6 @@ class MainActivity : AppCompatActivity() {
 
         createTapChannel()
 
-        // Wire views
         commandInput = findViewById(R.id.commandInput)
         statusView = findViewById(R.id.status)
         agentSwitch = findViewById(R.id.aiSwitch)
@@ -94,7 +93,6 @@ class MainActivity : AppCompatActivity() {
         val stopButton = findViewById<android.widget.Button>(R.id.stopButton)
         val clearChatButton = findViewById<android.widget.Button>(R.id.clearChatButton)
 
-        // TTS
         tts = TextToSpeech(this) { code ->
             if (code == TextToSpeech.SUCCESS) {
                 try {
@@ -129,7 +127,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Buttons
         sendButton.setOnClickListener {
             val cmd = commandInput.text.toString().trim()
             if (cmd.isEmpty()) return@setOnClickListener
@@ -180,7 +177,6 @@ class MainActivity : AppCompatActivity() {
             if (checked) {
                 if (!agentSwitch.isChecked) agentSwitch.isChecked = true
                 addMessage("Voice mode ON. Listening…", false)
-                // brief pause so TTS doesn't fight the microphone
                 Handler(Looper.getMainLooper()).postDelayed({
                     startVoiceInput()
                 }, 400)
@@ -191,7 +187,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Greeting
         addMessage("Hi, I'm Sky. Ask me anything or say a command.", false)
         updateStatus("Ready")
         handleWakeIntent(intent)
@@ -218,7 +213,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    // ---------- WAKE SERVICE ----------
     private fun requestPermissionsThenStartWake() {
         val needNotif = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -263,7 +257,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- VOICE ----------
     private fun startVoiceInput() {
         if (isListening || isThinking) return
         isListening = true
@@ -294,7 +287,6 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
             }
-            // Nothing heard — if voice mode, try again shortly
             if (voiceMode && !isThinking) {
                 Handler(Looper.getMainLooper()).postDelayed({
                     if (voiceMode && !isThinking) startVoiceInput()
@@ -303,7 +295,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- DISPATCH ----------
     private fun dispatch(command: String) {
         val t = command.lowercase().trim()
         if (t == "stop" || t == "stop sky" || t == "emergency stop") {
@@ -325,7 +316,6 @@ class MainActivity : AppCompatActivity() {
         statusView.text = msg
     }
 
-    // ---------- CHAT UI ----------
     private fun addMessage(text: String, isUser: Boolean) {
         val density = resources.displayMetrics.density
         val bubble = TextView(this)
@@ -341,7 +331,7 @@ class MainActivity : AppCompatActivity() {
 
         val bg = GradientDrawable()
         bg.cornerRadius = 18f * density
-        bg.color = if (isUser) Color.parseColor("#7CB7FF") else Color.parseColor("#1E2638")
+        bg.setColor(if (isUser) Color.parseColor("#7CB7FF") else Color.parseColor("#1E2638"))
         bubble.background = bg
 
         val lp = LinearLayout.LayoutParams(
@@ -364,7 +354,6 @@ class MainActivity : AppCompatActivity() {
         }, 80)
     }
 
-    // ---------- AI CALL ----------
     private fun sendToAI(message: String) {
         isThinking = true
         updateStatus("Thinking…")
@@ -422,7 +411,6 @@ class MainActivity : AppCompatActivity() {
                             updateStatus("Ready")
                             speak(reply)
                         } else {
-                            // no reply but might have actions
                             if (voiceMode) {
                                 Handler(Looper.getMainLooper()).postDelayed({
                                     if (voiceMode && !isThinking) startVoiceInput()
@@ -459,14 +447,12 @@ class MainActivity : AppCompatActivity() {
                 tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
             } catch (e: Exception) {}
         } else if (voiceMode) {
-            // No TTS — restart listening
             Handler(Looper.getMainLooper()).postDelayed({
                 if (voiceMode && !isThinking) startVoiceInput()
             }, 500)
         }
     }
 
-    // ---------- ACTIONS ----------
     private fun executeActionsSequentially(actions: List<JSONObject>, index: Int) {
         if (index >= actions.size) return
         val action = actions[index]
@@ -621,7 +607,6 @@ class MainActivity : AppCompatActivity() {
         return 300L
     }
 
-    // ---------- VISION ----------
     private fun doVisionTap(target: String) {
         val svc = SkyAccessibilityService.instance
         if (svc == null) { updateStatus("Accessibility off"); return }
@@ -691,7 +676,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- HELPERS ----------
     private fun resolvePackage(friendly: String): String? {
         val map = mapOf(
             "whatsapp" to "com.whatsapp",
