@@ -121,7 +121,7 @@
                     android:orientation="horizontal">
 
                     <TextView
-                        android:text="Wake word (Hey Jarvis)"
+                        android:text="Wake word (say Alexa)"
                         android:textColor="@color/white"
                         android:layout_width="0dp"
                         android:layout_weight="1"
