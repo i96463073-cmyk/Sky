@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,6 +16,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.util.Base64
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -26,6 +28,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.skyai.app.R
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -64,12 +67,8 @@ class MainActivity : AppCompatActivity() {
             if (code == TextToSpeech.SUCCESS) {
                 try {
                     val result = tts?.setLanguage(Locale.getDefault())
-                    if (result == TextToSpeech.LANG_MISSING_DATA ||
-                        result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        ttsReady = false
-                    } else {
-                        ttsReady = true
-                    }
+                    ttsReady = !(result == TextToSpeech.LANG_MISSING_DATA ||
+                                 result == TextToSpeech.LANG_NOT_SUPPORTED)
                     tts?.setSpeechRate(0.95f)
                     tts?.setPitch(1.0f)
                 } catch (e: Exception) {
@@ -113,19 +112,12 @@ class MainActivity : AppCompatActivity() {
             agentSwitch.isChecked = false
             wakeSwitch.isChecked = false
             stopWakeService()
-            try {
-                tts?.stop()
-            } catch (e: Exception) {
-            }
+            try { tts?.stop() } catch (e: Exception) {}
             updateStatus("Emergency stop. Sky is disabled.")
         }
 
         wakeSwitch.setOnCheckedChangeListener { button, checked ->
-            if (checked) {
-                requestPermissionsThenStartWake()
-            } else {
-                stopWakeService()
-            }
+            if (checked) requestPermissionsThenStartWake() else stopWakeService()
         }
 
         tradeSwitch.setOnCheckedChangeListener { button, checked ->
@@ -146,24 +138,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleWakeIntent(intent: Intent?) {
-        if (intent == null) {
-            return
-        }
+        if (intent == null) return
         if (intent.getBooleanExtra(SkyWakeService.ACTION_WAKE_DETECTED, false)) {
             intent.removeExtra(SkyWakeService.ACTION_WAKE_DETECTED)
             updateStatus("Wake word heard. Listening...")
-            Handler(Looper.getMainLooper()).postDelayed({
-                startVoiceInput()
-            }, 600)
+            Handler(Looper.getMainLooper()).postDelayed({ startVoiceInput() }, 600)
         }
     }
 
     override fun onDestroy() {
-        try {
-            tts?.stop()
-            tts?.shutdown()
-        } catch (e: Exception) {
-        }
+        try { tts?.stop(); tts?.shutdown() } catch (e: Exception) {}
         tts = null
         super.onDestroy()
     }
@@ -173,79 +157,57 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(
                 this, Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
-
         val needMic = ContextCompat.checkSelfPermission(
             this, Manifest.permission.RECORD_AUDIO
         ) != PackageManager.PERMISSION_GRANTED
 
         val reqs = mutableListOf<String>()
-        if (needMic) {
-            reqs.add(Manifest.permission.RECORD_AUDIO)
-        }
-        if (needNotif) {
-            reqs.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
+        if (needMic) reqs.add(Manifest.permission.RECORD_AUDIO)
+        if (needNotif) reqs.add(Manifest.permission.POST_NOTIFICATIONS)
 
         if (reqs.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 this, reqs.toTypedArray(), REQUEST_MIC_PERMISSION
             )
-        } else {
-            startWakeService()
-        }
+        } else startWakeService()
     }
 
     private fun startWakeService() {
         val i = Intent(this, SkyWakeService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(i)
-        } else {
-            startService(i)
-        }
-        updateStatus("Wake word is on. Say \"Hey Jarvis\" to wake me.")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i)
+        else startService(i)
+        updateStatus("Wake word is on. Say \"Alexa\" to wake me.")
     }
 
     private fun stopWakeService() {
-        try {
-            stopService(Intent(this, SkyWakeService::class.java))
-        } catch (e: Exception) {
-        }
+        try { stopService(Intent(this, SkyWakeService::class.java)) } catch (e: Exception) {}
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_MIC_PERMISSION) {
             val micOk = ContextCompat.checkSelfPermission(
                 this, Manifest.permission.RECORD_AUDIO
             ) == PackageManager.PERMISSION_GRANTED
-            if (micOk) {
-                startWakeService()
-            } else {
+            if (micOk) startWakeService() else {
                 wakeSwitch.isChecked = false
-                updateStatus("Microphone permission required for wake word.")
+                updateStatus("Microphone permission required.")
             }
         }
     }
 
     private fun startVoiceInput() {
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-        i.putExtra(
-            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-        )
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
         i.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your command")
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(i, REQUEST_SPEECH)
         } catch (e: Exception) {
-            Toast.makeText(
-                this, "Voice input not available", Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this, "Voice not available", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -269,10 +231,7 @@ class MainActivity : AppCompatActivity() {
             agentSwitch.isChecked = false
             wakeSwitch.isChecked = false
             stopWakeService()
-            try {
-                tts?.stop()
-            } catch (e: Exception) {
-            }
+            try { tts?.stop() } catch (e: Exception) {}
             updateStatus("Emergency stop. Sky is disabled.")
             return
         }
@@ -281,12 +240,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus(msg: String) {
         statusView.text = msg
-        if (ttsReady) {
-            try {
-                tts?.speak(msg, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
-            } catch (e: Exception) {
-            }
-        }
+        if (ttsReady) try {
+            tts?.speak(msg, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
+        } catch (e: Exception) {}
     }
 
     private fun sendToAI(message: String) {
@@ -319,31 +275,23 @@ class MainActivity : AppCompatActivity() {
                         val reply = obj.optString("reply", "").trim()
 
                         val actionList = mutableListOf<JSONObject>()
-
                         if (!obj.isNull("actions")) {
                             val arr = obj.optJSONArray("actions")
                             if (arr != null) {
                                 var i = 0
                                 while (i < arr.length()) {
                                     val a = arr.optJSONObject(i)
-                                    if (a != null) {
-                                        actionList.add(a)
-                                    }
+                                    if (a != null) actionList.add(a)
                                     i++
                                 }
                             }
                         }
                         if (actionList.isEmpty() && !obj.isNull("action")) {
                             val single = obj.optJSONObject("action")
-                            if (single != null) {
-                                actionList.add(single)
-                            }
+                            if (single != null) actionList.add(single)
                         }
 
-                        if (reply.isNotEmpty()) {
-                            updateStatus(reply)
-                        }
-
+                        if (reply.isNotEmpty()) updateStatus(reply)
                         if (actionList.isNotEmpty()) {
                             executeActionsSequentially(actionList, 0)
                         }
@@ -352,17 +300,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    updateStatus("Network error: " + e.message)
-                }
+                runOnUiThread { updateStatus("Network error: " + e.message) }
             }
         }
     }
 
     private fun executeActionsSequentially(actions: List<JSONObject>, index: Int) {
-        if (index >= actions.size) {
-            return
-        }
+        if (index >= actions.size) return
 
         val action = actions[index]
         val type = action.optString("type", "").trim()
@@ -397,33 +341,20 @@ class MainActivity : AppCompatActivity() {
 
         if (type == "OPEN_APP") {
             val q = action.optString("query", "").trim()
-            if (q.isEmpty()) {
-                updateStatus("No app specified.")
-                return 300L
-            }
+            if (q.isEmpty()) { updateStatus("No app specified."); return 300L }
             notifyTap("Opening " + q)
             val pkg = resolvePackage(q)
-            if (pkg != null) {
-                openApp(pkg, q)
-            } else {
-                openAppByQuery(q)
-            }
+            if (pkg != null) openApp(pkg, q) else openAppByQuery(q)
             return 2500L
         }
 
         if (type == "SEARCH_WEB") {
             val q = action.optString("query", "").trim()
-            if (q.isEmpty()) {
-                updateStatus("Nothing to search.")
-                return 300L
-            }
+            if (q.isEmpty()) { updateStatus("Nothing to search."); return 300L }
             notifyTap("Searching: " + q)
             val intent = Intent(
                 Intent.ACTION_VIEW,
-                Uri.parse(
-                    "https://www.google.com/search?q=" +
-                    URLEncoder.encode(q, "UTF-8")
-                )
+                Uri.parse("https://www.google.com/search?q=" + URLEncoder.encode(q, "UTF-8"))
             )
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
@@ -450,16 +381,20 @@ class MainActivity : AppCompatActivity() {
 
         if (type == "READ_SCREEN") {
             val svc = SkyAccessibilityService.instance
-            if (svc == null) {
-                updateStatus("Accessibility service is off.")
-                return 300L
-            }
+            if (svc == null) { updateStatus("Accessibility off."); return 300L }
             val text = svc.readScreen()
-            if (text.isBlank()) {
-                updateStatus("No readable text on screen.")
-            } else {
-                updateStatus("The screen says: " + text)
-            }
+            if (text.isBlank()) updateStatus("Nothing on screen.")
+            else updateStatus("Screen: " + text)
+            return 1000L
+        }
+
+        if (type == "READ_SCREEN_VISION") {
+            // Fallback to accessibility read for now
+            val svc = SkyAccessibilityService.instance
+            if (svc == null) { updateStatus("Accessibility off."); return 300L }
+            val text = svc.readScreen()
+            if (text.isBlank()) updateStatus("Nothing on screen.")
+            else updateStatus("Screen: " + text)
             return 1000L
         }
 
@@ -480,42 +415,31 @@ class MainActivity : AppCompatActivity() {
         if (type == "TAP") {
             val target = action.optString("target", "").trim()
             val svc = SkyAccessibilityService.instance
-            if (svc == null) {
-                updateStatus("Accessibility service is off.")
-                return 300L
-            }
-            if (target.isEmpty()) {
-                updateStatus("Nothing to tap.")
-                return 300L
-            }
+            if (svc == null) { updateStatus("Accessibility off."); return 300L }
+            if (target.isEmpty()) { updateStatus("Nothing to tap."); return 300L }
             notifyTap("Tap: " + target)
             val ok = svc.tapText(target)
-            if (ok) {
-                updateStatus("Tapped " + target + ".")
-            } else {
-                updateStatus("Could not find " + target + ".")
-            }
+            if (ok) updateStatus("Tapped " + target)
+            else updateStatus("Could not find " + target)
             return 2000L
+        }
+
+        if (type == "VISION_TAP") {
+            val target = action.optString("target", "").trim()
+            if (target.isEmpty()) { updateStatus("Nothing to find."); return 300L }
+            notifyTap("Vision: " + target)
+            doVisionTap(target)
+            return 4500L
         }
 
         if (type == "TYPE") {
             val txt = action.optString("text", "").trim()
             val svc = SkyAccessibilityService.instance
-            if (svc == null) {
-                updateStatus("Accessibility service is off.")
-                return 300L
-            }
-            if (txt.isEmpty()) {
-                updateStatus("Nothing to type.")
-                return 300L
-            }
+            if (svc == null) { updateStatus("Accessibility off."); return 300L }
+            if (txt.isEmpty()) { updateStatus("Nothing to type."); return 300L }
             notifyTap("Type: " + txt.take(40))
             val ok = svc.typeText(txt)
-            if (ok) {
-                updateStatus("Typed.")
-            } else {
-                updateStatus("Could not type.")
-            }
+            if (ok) updateStatus("Typed.") else updateStatus("Could not type.")
             return 1200L
         }
 
@@ -543,6 +467,92 @@ class MainActivity : AppCompatActivity() {
         return 300L
     }
 
+    // ---------- VISION ----------
+    private fun doVisionTap(target: String) {
+        val svc = SkyAccessibilityService.instance
+        if (svc == null) {
+            updateStatus("Accessibility off.")
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            updateStatus("Vision needs Android 11+.")
+            return
+        }
+
+        svc.takeScreenshot { bitmap ->
+            if (bitmap == null) {
+                updateStatus("Screenshot failed.")
+                return@takeScreenshot
+            }
+            thread {
+                try {
+                    val scale = 0.5f
+                    val scaled = Bitmap.createScaledBitmap(
+                        bitmap,
+                        (bitmap.width * scale).toInt(),
+                        (bitmap.height * scale).toInt(),
+                        true
+                    )
+                    val stream = ByteArrayOutputStream()
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                    val b64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+
+                    val url = URL("$BACKEND_BASE/vision")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 25000
+                    conn.doOutput = true
+                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+
+                    val body = JSONObject()
+                        .put("image", b64)
+                        .put("target", target)
+                        .put("width", scaled.width)
+                        .put("height", scaled.height)
+                        .toString()
+
+                    conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+                    val code = conn.responseCode
+                    val s = if (code in 200..299) conn.inputStream else conn.errorStream
+                    val txt = s?.bufferedReader()?.use { it.readText() } ?: ""
+                    conn.disconnect()
+
+                    runOnUiThread {
+                        try {
+                            val obj = JSONObject(txt)
+                            val found = obj.optBoolean("found", false)
+                            if (!found) {
+                                updateStatus("Could not find " + target)
+                                return@runOnUiThread
+                            }
+                            val x = obj.optDouble("x", -1.0).toFloat()
+                            val y = obj.optDouble("y", -1.0).toFloat()
+                            val label = obj.optString("label", target)
+                            if (x < 0 || y < 0) {
+                                updateStatus("Bad coordinates.")
+                                return@runOnUiThread
+                            }
+                            // Coordinates were in scaled image space — scale back
+                            val factor = 1f / scale
+                            val realX = x * factor
+                            val realY = y * factor
+                            val ok = svc.tapAt(realX, realY)
+                            if (ok) updateStatus("Tapped " + label)
+                            else updateStatus("Tap failed.")
+                        } catch (e: Exception) {
+                            updateStatus("Bad vision reply.")
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { updateStatus("Vision error: " + e.message) }
+                }
+            }
+        }
+    }
+
+    // ---------- HELPERS ----------
     private fun resolvePackage(friendly: String): String? {
         val map = mapOf(
             "whatsapp" to "com.whatsapp",
@@ -558,15 +568,8 @@ class MainActivity : AppCompatActivity() {
             "gmail" to "com.google.android.gm"
         )
         val k = friendly.lowercase().trim()
-        val direct = map[k]
-        if (direct != null) {
-            return direct
-        }
-        for ((name, pkg) in map) {
-            if (k.contains(name)) {
-                return pkg
-            }
-        }
+        map[k]?.let { return it }
+        for ((name, pkg) in map) if (k.contains(name)) return pkg
         return null
     }
 
@@ -582,13 +585,13 @@ class MainActivity : AppCompatActivity() {
                     val launch = pm.getLaunchIntentForPackage(pkg.packageName) ?: continue
                     launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(launch)
-                    updateStatus("Opening " + query + ".")
+                    updateStatus("Opening " + query)
                     return
                 }
             }
-            updateStatus("Could not find " + query + ".")
+            updateStatus("Could not find " + query)
         } catch (e: Exception) {
-            updateStatus("Could not open " + query + ".")
+            updateStatus("Could not open " + query)
         }
     }
 
@@ -598,24 +601,19 @@ class MainActivity : AppCompatActivity() {
             if (i != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(i)
-                updateStatus("Opening " + appName + ".")
-            } else {
-                updateStatus(appName + " is not installed.")
-            }
+                updateStatus("Opening " + appName)
+            } else updateStatus(appName + " is not installed.")
         } catch (e: Exception) {
-            updateStatus("Could not open " + appName + ".")
+            updateStatus("Could not open " + appName)
         }
     }
 
     private fun openWhatsAppMessage(to: String, message: String) {
         val msg = URLEncoder.encode(message, "UTF-8")
         val num = to.replace(Regex("[^0-9+]"), "")
-        val url: String
-        if (num.isNotEmpty() && num.length >= 7) {
-            url = "https://wa.me/$num?text=$msg"
-        } else {
-            url = "https://wa.me/?text=$msg"
-        }
+        val url = if (num.isNotEmpty() && num.length >= 7)
+            "https://wa.me/$num?text=$msg"
+        else "https://wa.me/?text=$msg"
         try {
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -623,46 +621,32 @@ class MainActivity : AppCompatActivity() {
             updateStatus("WhatsApp ready. Tap Send.")
         } catch (e: Exception) {
             try {
-                val f = Intent(
-                    Intent.ACTION_VIEW,
-                    Uri.parse("whatsapp://send?text=$msg")
-                )
+                val f = Intent(Intent.ACTION_VIEW, Uri.parse("whatsapp://send?text=$msg"))
                 f.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(f)
                 updateStatus("WhatsApp ready.")
-            } catch (e2: Exception) {
-                updateStatus("WhatsApp is not installed.")
-            }
+            } catch (e2: Exception) { updateStatus("WhatsApp is not installed.") }
         }
     }
 
     private fun openSmsMessage(to: String, message: String) {
         val msg = URLEncoder.encode(message, "UTF-8")
         try {
-            val i = Intent(
-                Intent.ACTION_SENDTO,
-                Uri.parse("smsto:$to?body=$msg")
-            )
+            val i = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$to?body=$msg"))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(i)
             updateStatus("SMS ready. Tap Send.")
-        } catch (e: Exception) {
-            updateStatus("Could not open SMS.")
-        }
+        } catch (e: Exception) { updateStatus("Could not open SMS.") }
     }
 
-    // ---------- TAP NOTIFICATIONS ----------
     private fun createTapChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(
-                TAP_CHANNEL_ID,
-                "Sky Actions",
+                TAP_CHANNEL_ID, "Sky Actions",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows what Sky is doing"
-            }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(ch)
+            ).apply { description = "Shows what Sky is doing" }
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(ch)
         }
     }
 
@@ -680,22 +664,17 @@ class MainActivity : AppCompatActivity() {
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
-                .setOngoing(false)
                 .setOnlyAlertOnce(true)
                 .build()
             nm.notify(TAP_NOTIF_ID, notif)
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
     }
 
     private fun logAction(type: String, detail: String) {
         try {
             val f = File(filesDir, "sky_action_log.txt")
-            val ts = SimpleDateFormat(
-                "yyyy-MM-dd HH:mm:ss", Locale.US
-            ).format(Date())
+            val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             f.appendText("[$ts] $type — $detail\n")
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
     }
 }
