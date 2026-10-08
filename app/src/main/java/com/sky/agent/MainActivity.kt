@@ -8,17 +8,23 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
-import android.widget.Button
+import android.view.Gravity
+import android.view.View
 import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -42,9 +48,18 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var agentSwitch: SwitchMaterial
     private lateinit var wakeSwitch: SwitchMaterial
+    private lateinit var voiceSwitch: SwitchMaterial
     private lateinit var statusView: TextView
+    private lateinit var chatScroll: ScrollView
+    private lateinit var chatContainer: LinearLayout
+    private lateinit var commandInput: EditText
+    private lateinit var settingsPanel: View
+
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var voiceMode = false
+    private var isListening = false
+    private var isThinking = false
 
     private val actionTimestamps = mutableListOf<Long>()
     private val maxActionsPerHour = 200
@@ -63,57 +78,90 @@ class MainActivity : AppCompatActivity() {
 
         createTapChannel()
 
+        // Wire views
+        commandInput = findViewById(R.id.commandInput)
+        statusView = findViewById(R.id.status)
+        agentSwitch = findViewById(R.id.aiSwitch)
+        wakeSwitch = findViewById(R.id.wakeSwitch)
+        voiceSwitch = findViewById(R.id.voiceSwitch)
+        chatScroll = findViewById(R.id.chatScroll)
+        chatContainer = findViewById(R.id.chatContainer)
+        settingsPanel = findViewById(R.id.settingsPanel)
+        val tradeSwitch = findViewById<SwitchMaterial>(R.id.tradeSwitch)
+        val settingsButton = findViewById<ImageButton>(R.id.settingsButton)
+        val sendButton = findViewById<ImageButton>(R.id.sendButton)
+        val micButton = findViewById<ImageButton>(R.id.micButton)
+        val stopButton = findViewById<android.widget.Button>(R.id.stopButton)
+        val clearChatButton = findViewById<android.widget.Button>(R.id.clearChatButton)
+
+        // TTS
         tts = TextToSpeech(this) { code ->
             if (code == TextToSpeech.SUCCESS) {
                 try {
-                    val result = tts?.setLanguage(Locale.getDefault())
-                    ttsReady = !(result == TextToSpeech.LANG_MISSING_DATA ||
-                                 result == TextToSpeech.LANG_NOT_SUPPORTED)
-                    tts?.setSpeechRate(0.95f)
+                    val r = tts?.setLanguage(Locale.getDefault())
+                    ttsReady = !(r == TextToSpeech.LANG_MISSING_DATA ||
+                                 r == TextToSpeech.LANG_NOT_SUPPORTED)
+                    tts?.setSpeechRate(0.98f)
                     tts?.setPitch(1.0f)
+                    tts?.setOnUtteranceProgressListener(
+                        object : UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) {}
+                            override fun onDone(utteranceId: String?) {
+                                if (voiceMode && !isThinking) {
+                                    Handler(Looper.getMainLooper()).postDelayed({
+                                        if (voiceMode && !isThinking) startVoiceInput()
+                                    }, 500)
+                                }
+                            }
+                            @Deprecated("Deprecated in Java")
+                            override fun onError(utteranceId: String?) {
+                                if (voiceMode) {
+                                    Handler(Looper.getMainLooper()).postDelayed({
+                                        if (voiceMode && !isThinking) startVoiceInput()
+                                    }, 500)
+                                }
+                            }
+                        }
+                    )
                 } catch (e: Exception) {
                     ttsReady = false
                 }
             }
         }
 
-        val commandInput = findViewById<EditText>(R.id.commandInput)
-        statusView = findViewById(R.id.status)
-        agentSwitch = findViewById(R.id.aiSwitch)
-        wakeSwitch = findViewById(R.id.wakeSwitch)
-        val tradeSwitch = findViewById<SwitchMaterial>(R.id.tradeSwitch)
-
-        val runButton = findViewById<Button>(R.id.runButton)
-        val stopButton = findViewById<Button>(R.id.stopButton)
-        val micButton = findViewById<Button>(R.id.micButton)
-
-        runButton.setOnClickListener {
-            val command = commandInput.text.toString().trim()
-            if (!agentSwitch.isChecked) {
-                updateStatus("Sky is off")
-                return@setOnClickListener
-            }
-            if (command.isEmpty()) {
-                commandInput.error = "Enter a command"
-                return@setOnClickListener
-            }
-            dispatch(command)
+        // Buttons
+        sendButton.setOnClickListener {
+            val cmd = commandInput.text.toString().trim()
+            if (cmd.isEmpty()) return@setOnClickListener
+            commandInput.setText("")
+            dispatch(cmd)
         }
 
         micButton.setOnClickListener {
-            if (!agentSwitch.isChecked) {
-                updateStatus("Sky is off")
-                return@setOnClickListener
-            }
+            if (isListening) return@setOnClickListener
             startVoiceInput()
         }
 
+        settingsButton.setOnClickListener {
+            settingsPanel.visibility =
+                if (settingsPanel.visibility == View.VISIBLE) View.GONE
+                else View.VISIBLE
+        }
+
         stopButton.setOnClickListener {
+            voiceMode = false
+            voiceSwitch.isChecked = false
             agentSwitch.isChecked = false
             wakeSwitch.isChecked = false
             stopWakeService()
             try { tts?.stop() } catch (e: Exception) {}
-            updateStatus("Emergency stop. Sky is disabled.")
+            addMessage("Emergency stop. Sky is disabled.", false)
+            updateStatus("Stopped")
+        }
+
+        clearChatButton.setOnClickListener {
+            chatContainer.removeAllViews()
+            addMessage("Hi, I'm Sky. Ask me anything or say a command.", false)
         }
 
         wakeSwitch.setOnCheckedChangeListener { button, checked ->
@@ -123,11 +171,29 @@ class MainActivity : AppCompatActivity() {
         tradeSwitch.setOnCheckedChangeListener { button, checked ->
             if (checked) {
                 button.isChecked = false
-                updateStatus("MT5 execution is locked for now.")
+                updateStatus("MT5 execution is locked.")
             }
         }
 
-        updateStatus("Sky is ready.")
+        voiceSwitch.setOnCheckedChangeListener { button, checked ->
+            voiceMode = checked
+            if (checked) {
+                if (!agentSwitch.isChecked) agentSwitch.isChecked = true
+                addMessage("Voice mode ON. Listening…", false)
+                // brief pause so TTS doesn't fight the microphone
+                Handler(Looper.getMainLooper()).postDelayed({
+                    startVoiceInput()
+                }, 400)
+            } else {
+                try { tts?.stop() } catch (e: Exception) {}
+                try { isListening = false } catch (e: Exception) {}
+                updateStatus("Voice mode off")
+            }
+        }
+
+        // Greeting
+        addMessage("Hi, I'm Sky. Ask me anything or say a command.", false)
+        updateStatus("Ready")
         handleWakeIntent(intent)
     }
 
@@ -141,8 +207,8 @@ class MainActivity : AppCompatActivity() {
         if (intent == null) return
         if (intent.getBooleanExtra(SkyWakeService.ACTION_WAKE_DETECTED, false)) {
             intent.removeExtra(SkyWakeService.ACTION_WAKE_DETECTED)
-            updateStatus("Wake word heard. Listening...")
-            Handler(Looper.getMainLooper()).postDelayed({ startVoiceInput() }, 600)
+            updateStatus("Wake word heard")
+            Handler(Looper.getMainLooper()).postDelayed({ startVoiceInput() }, 500)
         }
     }
 
@@ -152,6 +218,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    // ---------- WAKE SERVICE ----------
     private fun requestPermissionsThenStartWake() {
         val needNotif = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -160,11 +227,9 @@ class MainActivity : AppCompatActivity() {
         val needMic = ContextCompat.checkSelfPermission(
             this, Manifest.permission.RECORD_AUDIO
         ) != PackageManager.PERMISSION_GRANTED
-
         val reqs = mutableListOf<String>()
         if (needMic) reqs.add(Manifest.permission.RECORD_AUDIO)
         if (needNotif) reqs.add(Manifest.permission.POST_NOTIFICATIONS)
-
         if (reqs.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 this, reqs.toTypedArray(), REQUEST_MIC_PERMISSION
@@ -176,7 +241,7 @@ class MainActivity : AppCompatActivity() {
         val i = Intent(this, SkyWakeService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i)
         else startService(i)
-        updateStatus("Wake word is on. Say \"Alexa\" to wake me.")
+        updateStatus("Wake word on — say Alexa")
     }
 
     private fun stopWakeService() {
@@ -193,20 +258,24 @@ class MainActivity : AppCompatActivity() {
             ) == PackageManager.PERMISSION_GRANTED
             if (micOk) startWakeService() else {
                 wakeSwitch.isChecked = false
-                updateStatus("Microphone permission required.")
+                updateStatus("Mic permission required")
             }
         }
     }
 
+    // ---------- VOICE ----------
     private fun startVoiceInput() {
+        if (isListening || isThinking) return
+        isListening = true
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-        i.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your command")
+        i.putExtra(RecognizerIntent.EXTRA_PROMPT, "Listening…")
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(i, REQUEST_SPEECH)
         } catch (e: Exception) {
+            isListening = false
             Toast.makeText(this, "Voice not available", Toast.LENGTH_SHORT).show()
         }
     }
@@ -215,38 +284,90 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_SPEECH && resultCode == Activity.RESULT_OK) {
-            val r = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val spoken = r?.firstOrNull()?.trim()
-            if (!spoken.isNullOrEmpty()) {
-                findViewById<EditText>(R.id.commandInput).setText(spoken)
-                dispatch(spoken)
+        if (requestCode == REQUEST_SPEECH) {
+            isListening = false
+            if (resultCode == Activity.RESULT_OK) {
+                val r = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                val spoken = r?.firstOrNull()?.trim()
+                if (!spoken.isNullOrEmpty()) {
+                    dispatch(spoken)
+                    return
+                }
+            }
+            // Nothing heard — if voice mode, try again shortly
+            if (voiceMode && !isThinking) {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (voiceMode && !isThinking) startVoiceInput()
+                }, 700)
             }
         }
     }
 
+    // ---------- DISPATCH ----------
     private fun dispatch(command: String) {
         val t = command.lowercase().trim()
         if (t == "stop" || t == "stop sky" || t == "emergency stop") {
+            voiceMode = false
+            voiceSwitch.isChecked = false
             agentSwitch.isChecked = false
             wakeSwitch.isChecked = false
             stopWakeService()
             try { tts?.stop() } catch (e: Exception) {}
-            updateStatus("Emergency stop. Sky is disabled.")
+            addMessage("Emergency stop. Sky is disabled.", false)
+            updateStatus("Stopped")
             return
         }
+        addMessage(command, true)
         sendToAI(command)
     }
 
     private fun updateStatus(msg: String) {
         statusView.text = msg
-        if (ttsReady) try {
-            tts?.speak(msg, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
-        } catch (e: Exception) {}
     }
 
+    // ---------- CHAT UI ----------
+    private fun addMessage(text: String, isUser: Boolean) {
+        val density = resources.displayMetrics.density
+        val bubble = TextView(this)
+        bubble.text = text
+        bubble.setTextColor(if (isUser) Color.parseColor("#0A0E18") else Color.parseColor("#E8ECF5"))
+        bubble.textSize = 15f
+        bubble.setLineSpacing(0f, 1.15f)
+        bubble.setPadding(
+            (14 * density).toInt(), (10 * density).toInt(),
+            (14 * density).toInt(), (10 * density).toInt()
+        )
+        bubble.maxWidth = (280 * density).toInt()
+
+        val bg = GradientDrawable()
+        bg.cornerRadius = 18f * density
+        bg.color = if (isUser) Color.parseColor("#7CB7FF") else Color.parseColor("#1E2638")
+        bubble.background = bg
+
+        val lp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        lp.topMargin = (8 * density).toInt()
+        lp.leftMargin = (6 * density).toInt()
+        lp.rightMargin = (6 * density).toInt()
+        lp.gravity = if (isUser) Gravity.END else Gravity.START
+        bubble.layoutParams = lp
+
+        chatContainer.addView(bubble)
+        scrollChatToBottom()
+    }
+
+    private fun scrollChatToBottom() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            chatScroll.fullScroll(View.FOCUS_DOWN)
+        }, 80)
+    }
+
+    // ---------- AI CALL ----------
     private fun sendToAI(message: String) {
-        updateStatus("Thinking...")
+        isThinking = true
+        updateStatus("Thinking…")
         thread {
             try {
                 val url = URL("$BACKEND_BASE/chat")
@@ -266,8 +387,15 @@ class MainActivity : AppCompatActivity() {
                 c.disconnect()
 
                 runOnUiThread {
+                    isThinking = false
                     if (code !in 200..299) {
-                        updateStatus("Backend error: " + code)
+                        addMessage("Backend error: $code", false)
+                        updateStatus("Error")
+                        if (voiceMode) {
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                if (voiceMode) startVoiceInput()
+                            }, 800)
+                        }
                         return@runOnUiThread
                     }
                     try {
@@ -280,34 +408,67 @@ class MainActivity : AppCompatActivity() {
                             if (arr != null) {
                                 var i = 0
                                 while (i < arr.length()) {
-                                    val a = arr.optJSONObject(i)
-                                    if (a != null) actionList.add(a)
+                                    arr.optJSONObject(i)?.let { actionList.add(it) }
                                     i++
                                 }
                             }
                         }
                         if (actionList.isEmpty() && !obj.isNull("action")) {
-                            val single = obj.optJSONObject("action")
-                            if (single != null) actionList.add(single)
+                            obj.optJSONObject("action")?.let { actionList.add(it) }
                         }
 
-                        if (reply.isNotEmpty()) updateStatus(reply)
+                        if (reply.isNotEmpty()) {
+                            addMessage(reply, false)
+                            updateStatus("Ready")
+                            speak(reply)
+                        } else {
+                            // no reply but might have actions
+                            if (voiceMode) {
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    if (voiceMode && !isThinking) startVoiceInput()
+                                }, 600)
+                            }
+                        }
+
                         if (actionList.isNotEmpty()) {
                             executeActionsSequentially(actionList, 0)
                         }
                     } catch (e: Exception) {
-                        updateStatus("Bad reply from backend.")
+                        addMessage("Bad reply from backend.", false)
+                        updateStatus("Error")
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread { updateStatus("Network error: " + e.message) }
+                runOnUiThread {
+                    isThinking = false
+                    addMessage("Network error: ${e.message}", false)
+                    updateStatus("Error")
+                    if (voiceMode) {
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            if (voiceMode) startVoiceInput()
+                        }, 800)
+                    }
+                }
             }
         }
     }
 
+    private fun speak(text: String) {
+        if (ttsReady) {
+            try {
+                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
+            } catch (e: Exception) {}
+        } else if (voiceMode) {
+            // No TTS — restart listening
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (voiceMode && !isThinking) startVoiceInput()
+            }, 500)
+        }
+    }
+
+    // ---------- ACTIONS ----------
     private fun executeActionsSequentially(actions: List<JSONObject>, index: Int) {
         if (index >= actions.size) return
-
         val action = actions[index]
         val type = action.optString("type", "").trim()
         if (type.isEmpty()) {
@@ -318,7 +479,7 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         actionTimestamps.removeAll { now - it > 3600_000L }
         if (actionTimestamps.size >= maxActionsPerHour) {
-            updateStatus("Action limit reached for this hour.")
+            updateStatus("Action limit reached")
             return
         }
         actionTimestamps.add(now)
@@ -328,7 +489,7 @@ class MainActivity : AppCompatActivity() {
         try {
             delayMs = runAction(action)
         } catch (e: Exception) {
-            updateStatus("Action failed: " + e.message)
+            updateStatus("Action failed: ${e.message}")
         }
 
         Handler(Looper.getMainLooper()).postDelayed({
@@ -341,8 +502,8 @@ class MainActivity : AppCompatActivity() {
 
         if (type == "OPEN_APP") {
             val q = action.optString("query", "").trim()
-            if (q.isEmpty()) { updateStatus("No app specified."); return 300L }
-            notifyTap("Opening " + q)
+            if (q.isEmpty()) return 300L
+            notifyTap("Opening $q")
             val pkg = resolvePackage(q)
             if (pkg != null) openApp(pkg, q) else openAppByQuery(q)
             return 2500L
@@ -350,8 +511,8 @@ class MainActivity : AppCompatActivity() {
 
         if (type == "SEARCH_WEB") {
             val q = action.optString("query", "").trim()
-            if (q.isEmpty()) { updateStatus("Nothing to search."); return 300L }
-            notifyTap("Searching: " + q)
+            if (q.isEmpty()) return 300L
+            notifyTap("Searching: $q")
             val intent = Intent(
                 Intent.ACTION_VIEW,
                 Uri.parse("https://www.google.com/search?q=" + URLEncoder.encode(q, "UTF-8"))
@@ -381,53 +542,50 @@ class MainActivity : AppCompatActivity() {
 
         if (type == "READ_SCREEN") {
             val svc = SkyAccessibilityService.instance
-            if (svc == null) { updateStatus("Accessibility off."); return 300L }
+            if (svc == null) { updateStatus("Accessibility off"); return 300L }
             val text = svc.readScreen()
-            if (text.isBlank()) updateStatus("Nothing on screen.")
-            else updateStatus("Screen: " + text)
+            if (text.isBlank()) updateStatus("Nothing on screen")
+            else updateStatus("Screen read")
             return 1000L
         }
 
         if (type == "READ_SCREEN_VISION") {
-            // Fallback to accessibility read for now
             val svc = SkyAccessibilityService.instance
-            if (svc == null) { updateStatus("Accessibility off."); return 300L }
+            if (svc == null) { updateStatus("Accessibility off"); return 300L }
             val text = svc.readScreen()
-            if (text.isBlank()) updateStatus("Nothing on screen.")
-            else updateStatus("Screen: " + text)
+            updateStatus(if (text.isBlank()) "Nothing on screen" else "Screen read")
             return 1000L
         }
 
         if (type == "GO_BACK") {
             notifyTap("Back")
             SkyAccessibilityService.instance?.goBack()
-            updateStatus("Going back.")
+            updateStatus("Back")
             return 1200L
         }
 
         if (type == "GO_HOME") {
             notifyTap("Home")
             SkyAccessibilityService.instance?.goHome()
-            updateStatus("Going home.")
+            updateStatus("Home")
             return 1200L
         }
 
         if (type == "TAP") {
             val target = action.optString("target", "").trim()
             val svc = SkyAccessibilityService.instance
-            if (svc == null) { updateStatus("Accessibility off."); return 300L }
-            if (target.isEmpty()) { updateStatus("Nothing to tap."); return 300L }
-            notifyTap("Tap: " + target)
+            if (svc == null) { updateStatus("Accessibility off"); return 300L }
+            if (target.isEmpty()) return 300L
+            notifyTap("Tap: $target")
             val ok = svc.tapText(target)
-            if (ok) updateStatus("Tapped " + target)
-            else updateStatus("Could not find " + target)
+            updateStatus(if (ok) "Tapped $target" else "Not found: $target")
             return 2000L
         }
 
         if (type == "VISION_TAP") {
             val target = action.optString("target", "").trim()
-            if (target.isEmpty()) { updateStatus("Nothing to find."); return 300L }
-            notifyTap("Vision: " + target)
+            if (target.isEmpty()) return 300L
+            notifyTap("Vision: $target")
             doVisionTap(target)
             return 4500L
         }
@@ -435,55 +593,44 @@ class MainActivity : AppCompatActivity() {
         if (type == "TYPE") {
             val txt = action.optString("text", "").trim()
             val svc = SkyAccessibilityService.instance
-            if (svc == null) { updateStatus("Accessibility off."); return 300L }
-            if (txt.isEmpty()) { updateStatus("Nothing to type."); return 300L }
-            notifyTap("Type: " + txt.take(40))
-            val ok = svc.typeText(txt)
-            if (ok) updateStatus("Typed.") else updateStatus("Could not type.")
+            if (svc == null) { updateStatus("Accessibility off"); return 300L }
+            if (txt.isEmpty()) return 300L
+            notifyTap("Type: ${txt.take(40)}")
+            svc.typeText(txt)
+            updateStatus("Typed")
             return 1200L
         }
 
         if (type == "SCROLL_DOWN") {
             notifyTap("Scroll down")
             SkyAccessibilityService.instance?.scrollDown()
-            updateStatus("Scrolling down.")
             return 1200L
         }
 
         if (type == "SCROLL_UP") {
             notifyTap("Scroll up")
             SkyAccessibilityService.instance?.scrollUp()
-            updateStatus("Scrolling up.")
             return 1200L
         }
 
         if (type == "WAIT") {
-            val ms = action.optLong("ms", 1500L)
-            updateStatus("Waiting...")
-            return ms
+            return action.optLong("ms", 1500L)
         }
 
-        updateStatus("Unknown action: " + type)
+        updateStatus("Unknown action: $type")
         return 300L
     }
 
     // ---------- VISION ----------
     private fun doVisionTap(target: String) {
         val svc = SkyAccessibilityService.instance
-        if (svc == null) {
-            updateStatus("Accessibility off.")
-            return
-        }
+        if (svc == null) { updateStatus("Accessibility off"); return }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            updateStatus("Vision needs Android 11+.")
+            updateStatus("Vision needs Android 11+")
             return
         }
-
         svc.takeScreenshot { bitmap ->
-            if (bitmap == null) {
-                updateStatus("Screenshot failed.")
-                return@takeScreenshot
-            }
+            if (bitmap == null) { updateStatus("Screenshot failed"); return@takeScreenshot }
             thread {
                 try {
                     val scale = 0.5f
@@ -522,31 +669,23 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         try {
                             val obj = JSONObject(txt)
-                            val found = obj.optBoolean("found", false)
-                            if (!found) {
-                                updateStatus("Could not find " + target)
+                            if (!obj.optBoolean("found", false)) {
+                                updateStatus("Vision: not found")
                                 return@runOnUiThread
                             }
                             val x = obj.optDouble("x", -1.0).toFloat()
                             val y = obj.optDouble("y", -1.0).toFloat()
                             val label = obj.optString("label", target)
-                            if (x < 0 || y < 0) {
-                                updateStatus("Bad coordinates.")
-                                return@runOnUiThread
-                            }
-                            // Coordinates were in scaled image space — scale back
+                            if (x < 0 || y < 0) { updateStatus("Bad coords"); return@runOnUiThread }
                             val factor = 1f / scale
-                            val realX = x * factor
-                            val realY = y * factor
-                            val ok = svc.tapAt(realX, realY)
-                            if (ok) updateStatus("Tapped " + label)
-                            else updateStatus("Tap failed.")
+                            val ok = svc.tapAt(x * factor, y * factor)
+                            updateStatus(if (ok) "Tapped $label" else "Tap failed")
                         } catch (e: Exception) {
-                            updateStatus("Bad vision reply.")
+                            updateStatus("Bad vision reply")
                         }
                     }
                 } catch (e: Exception) {
-                    runOnUiThread { updateStatus("Vision error: " + e.message) }
+                    runOnUiThread { updateStatus("Vision error: ${e.message}") }
                 }
             }
         }
@@ -585,13 +724,13 @@ class MainActivity : AppCompatActivity() {
                     val launch = pm.getLaunchIntentForPackage(pkg.packageName) ?: continue
                     launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(launch)
-                    updateStatus("Opening " + query)
+                    updateStatus("Opening $query")
                     return
                 }
             }
-            updateStatus("Could not find " + query)
+            updateStatus("Not installed: $query")
         } catch (e: Exception) {
-            updateStatus("Could not open " + query)
+            updateStatus("Could not open $query")
         }
     }
 
@@ -601,10 +740,10 @@ class MainActivity : AppCompatActivity() {
             if (i != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(i)
-                updateStatus("Opening " + appName)
-            } else updateStatus(appName + " is not installed.")
+                updateStatus("Opening $appName")
+            } else updateStatus("$appName not installed")
         } catch (e: Exception) {
-            updateStatus("Could not open " + appName)
+            updateStatus("Could not open $appName")
         }
     }
 
@@ -618,14 +757,12 @@ class MainActivity : AppCompatActivity() {
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(i)
-            updateStatus("WhatsApp ready. Tap Send.")
         } catch (e: Exception) {
             try {
                 val f = Intent(Intent.ACTION_VIEW, Uri.parse("whatsapp://send?text=$msg"))
                 f.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(f)
-                updateStatus("WhatsApp ready.")
-            } catch (e2: Exception) { updateStatus("WhatsApp is not installed.") }
+            } catch (e2: Exception) { updateStatus("WhatsApp not installed") }
         }
     }
 
@@ -635,8 +772,7 @@ class MainActivity : AppCompatActivity() {
             val i = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$to?body=$msg"))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(i)
-            updateStatus("SMS ready. Tap Send.")
-        } catch (e: Exception) { updateStatus("Could not open SMS.") }
+        } catch (e: Exception) { updateStatus("SMS failed") }
     }
 
     private fun createTapChannel() {
@@ -645,8 +781,7 @@ class MainActivity : AppCompatActivity() {
                 TAP_CHANNEL_ID, "Sky Actions",
                 NotificationManager.IMPORTANCE_LOW
             ).apply { description = "Shows what Sky is doing" }
-            getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(ch)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
     }
 
@@ -654,13 +789,12 @@ class MainActivity : AppCompatActivity() {
         try {
             val nm = getSystemService(NotificationManager::class.java)
             val pi = PendingIntent.getActivity(
-                this, 0,
-                Intent(this, MainActivity::class.java),
+                this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             val notif = NotificationCompat.Builder(this, TAP_CHANNEL_ID)
-                .setContentTitle("Sky: " + label)
-                .setContentText("Tap STOP SKY NOW to halt.")
+                .setContentTitle("Sky: $label")
+                .setContentText("Tap STOP to halt.")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
