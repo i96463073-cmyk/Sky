@@ -2,6 +2,7 @@ package com.sky.agent
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -21,6 +22,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -90,8 +92,8 @@ class MainActivity : AppCompatActivity() {
         val settingsButton = findViewById<ImageButton>(R.id.settingsButton)
         val sendButton = findViewById<ImageButton>(R.id.sendButton)
         val micButton = findViewById<ImageButton>(R.id.micButton)
-        val stopButton = findViewById<android.widget.Button>(R.id.stopButton)
-        val clearChatButton = findViewById<android.widget.Button>(R.id.clearChatButton)
+        val stopButton = findViewById<Button>(R.id.stopButton)
+        val clearChatButton = findViewById<Button>(R.id.clearChatButton)
 
         tts = TextToSpeech(this) { code ->
             if (code == TextToSpeech.SUCCESS) {
@@ -121,9 +123,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     )
-                } catch (e: Exception) {
-                    ttsReady = false
-                }
+                } catch (e: Exception) { ttsReady = false }
             }
         }
 
@@ -177,17 +177,15 @@ class MainActivity : AppCompatActivity() {
             if (checked) {
                 if (!agentSwitch.isChecked) agentSwitch.isChecked = true
                 addMessage("Voice mode ON. Listening…", false)
-                Handler(Looper.getMainLooper()).postDelayed({
-                    startVoiceInput()
-                }, 400)
+                Handler(Looper.getMainLooper()).postDelayed({ startVoiceInput() }, 400)
             } else {
                 try { tts?.stop() } catch (e: Exception) {}
-                try { isListening = false } catch (e: Exception) {}
+                isListening = false
                 updateStatus("Voice mode off")
             }
         }
 
-        addMessage("Hi, I'm Sky. Ask me anything or say a command.", false)
+        addMessage("Hi, I'm Sky. Ask me anything, or say: \"Sky, add a feature\".", false)
         updateStatus("Ready")
         handleWakeIntent(intent)
     }
@@ -215,19 +213,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestPermissionsThenStartWake() {
         val needNotif = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                this, Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        val needMic = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.RECORD_AUDIO
-        ) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+        val needMic = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
         val reqs = mutableListOf<String>()
         if (needMic) reqs.add(Manifest.permission.RECORD_AUDIO)
         if (needNotif) reqs.add(Manifest.permission.POST_NOTIFICATIONS)
         if (reqs.isNotEmpty()) {
-            ActivityCompat.requestPermissions(
-                this, reqs.toTypedArray(), REQUEST_MIC_PERMISSION
-            )
+            ActivityCompat.requestPermissions(this, reqs.toTypedArray(), REQUEST_MIC_PERMISSION)
         } else startWakeService()
     }
 
@@ -247,9 +241,8 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_MIC_PERMISSION) {
-            val micOk = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+            val micOk = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
             if (micOk) startWakeService() else {
                 wakeSwitch.isChecked = false
                 updateStatus("Mic permission required")
@@ -317,20 +310,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addMessage(text: String, isUser: Boolean) {
-        val density = resources.displayMetrics.density
+        val d = resources.displayMetrics.density
         val bubble = TextView(this)
         bubble.text = text
         bubble.setTextColor(if (isUser) Color.parseColor("#0A0E18") else Color.parseColor("#E8ECF5"))
         bubble.textSize = 15f
         bubble.setLineSpacing(0f, 1.15f)
-        bubble.setPadding(
-            (14 * density).toInt(), (10 * density).toInt(),
-            (14 * density).toInt(), (10 * density).toInt()
-        )
-        bubble.maxWidth = (280 * density).toInt()
+        bubble.setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
+        bubble.maxWidth = (280 * d).toInt()
 
         val bg = GradientDrawable()
-        bg.cornerRadius = 18f * density
+        bg.cornerRadius = 18f * d
         bg.setColor(if (isUser) Color.parseColor("#7CB7FF") else Color.parseColor("#1E2638"))
         bubble.background = bg
 
@@ -338,13 +328,89 @@ class MainActivity : AppCompatActivity() {
             LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
-        lp.topMargin = (8 * density).toInt()
-        lp.leftMargin = (6 * density).toInt()
-        lp.rightMargin = (6 * density).toInt()
+        lp.topMargin = (8 * d).toInt()
+        lp.leftMargin = (6 * d).toInt()
+        lp.rightMargin = (6 * d).toInt()
         lp.gravity = if (isUser) Gravity.END else Gravity.START
         bubble.layoutParams = lp
 
         chatContainer.addView(bubble)
+        scrollChatToBottom()
+    }
+
+    private fun addCodeProposalCard(filePath: String, summary: String, content: String) {
+        val d = resources.displayMetrics.density
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.setPadding((16 * d).toInt(), (14 * d).toInt(), (16 * d).toInt(), (14 * d).toInt())
+
+        val bg = GradientDrawable()
+        bg.setColor(Color.parseColor("#1A2030"))
+        bg.cornerRadius = 14f * d
+        bg.setStroke((1 * d).toInt(), Color.parseColor("#7CB7FF"))
+        card.background = bg
+
+        val title = TextView(this)
+        title.text = "📝 Proposed code change"
+        title.setTextColor(Color.parseColor("#7CB7FF"))
+        title.textSize = 14f
+        title.setPadding(0, 0, 0, (6 * d).toInt())
+
+        val fileLabel = TextView(this)
+        fileLabel.text = "File: " + filePath
+        fileLabel.setTextColor(Color.parseColor("#B0B0B0"))
+        fileLabel.textSize = 11f
+        fileLabel.setPadding(0, 0, 0, (6 * d).toInt())
+
+        val summaryView = TextView(this)
+        summaryView.text = summary
+        summaryView.setTextColor(Color.parseColor("#E8ECF5"))
+        summaryView.textSize = 14f
+        summaryView.setPadding(0, 0, 0, (10 * d).toInt())
+
+        val previewButton = Button(this)
+        previewButton.text = "👁 View code (" + content.length + " chars)"
+        previewButton.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Proposed: " + filePath.substringAfterLast("/"))
+                .setMessage(content)
+                .setPositiveButton("Close", null)
+                .show()
+        }
+
+        val approveButton = Button(this)
+        approveButton.text = "✅ APPROVE & DEPLOY"
+        approveButton.setTextColor(Color.WHITE)
+        approveButton.setBackgroundColor(Color.parseColor("#1E7A34"))
+        approveButton.setOnClickListener {
+            approveButton.isEnabled = false
+            approveButton.text = "Deploying…"
+            deployCode(filePath, content, summary)
+        }
+
+        val cancelButton = Button(this)
+        cancelButton.text = "❌ Cancel"
+        cancelButton.setOnClickListener {
+            addMessage("Cancelled.", false)
+        }
+
+        card.addView(title)
+        card.addView(fileLabel)
+        card.addView(summaryView)
+        card.addView(previewButton)
+        card.addView(approveButton)
+        card.addView(cancelButton)
+
+        val lp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        lp.topMargin = (12 * d).toInt()
+        lp.leftMargin = (6 * d).toInt()
+        lp.rightMargin = (6 * d).toInt()
+        card.layoutParams = lp
+
+        chatContainer.addView(card)
         scrollChatToBottom()
     }
 
@@ -362,8 +428,8 @@ class MainActivity : AppCompatActivity() {
                 val url = URL("$BACKEND_BASE/chat")
                 val c = url.openConnection() as HttpURLConnection
                 c.requestMethod = "POST"
-                c.connectTimeout = 15000
-                c.readTimeout = 30000
+                c.connectTimeout = 20000
+                c.readTimeout = 60000
                 c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
 
@@ -410,8 +476,19 @@ class MainActivity : AppCompatActivity() {
                             addMessage(reply, false)
                             updateStatus("Ready")
                             speak(reply)
+                        }
+
+                        if (!obj.isNull("code_proposal")) {
+                            val cp = obj.optJSONObject("code_proposal")
+                            if (cp != null) {
+                                addCodeProposalCard(
+                                    cp.optString("file_path"),
+                                    cp.optString("summary"),
+                                    cp.optString("new_content")
+                                )
+                            }
                         } else {
-                            if (voiceMode) {
+                            if (voiceMode && reply.isEmpty()) {
                                 Handler(Looper.getMainLooper()).postDelayed({
                                     if (voiceMode && !isThinking) startVoiceInput()
                                 }, 600)
@@ -441,11 +518,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun deployCode(filePath: String, content: String, summary: String) {
+        updateStatus("Deploying…")
+        thread {
+            try {
+                val url = URL("$BACKEND_BASE/deploy")
+                val c = url.openConnection() as HttpURLConnection
+                c.requestMethod = "POST"
+                c.connectTimeout = 20000
+                c.readTimeout = 45000
+                c.doOutput = true
+                c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+
+                val body = JSONObject()
+                    .put("file_path", filePath)
+                    .put("new_content", content)
+                    .put("commit_message", "SkyAI: " + summary.take(60))
+                    .toString()
+
+                c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+                val code = c.responseCode
+                val s = if (code in 200..299) c.inputStream else c.errorStream
+                val txt = s?.bufferedReader()?.use { it.readText() } ?: ""
+                c.disconnect()
+
+                runOnUiThread {
+                    if (code in 200..299) {
+                        addMessage("✅ Deployed to GitHub. New APK will be built in ~1 minute. Check Actions → Artifacts.", false)
+                        updateStatus("Deployed")
+                    } else {
+                        addMessage("❌ Deploy failed: $txt", false)
+                        updateStatus("Deploy failed")
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    addMessage("❌ Deploy error: ${e.message}", false)
+                    updateStatus("Deploy error")
+                }
+            }
+        }
+    }
+
     private fun speak(text: String) {
         if (ttsReady) {
-            try {
-                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "sky_msg")
-            } catch (e: Exception) {}
+            try { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "sky_msg") } catch (e: Exception) {}
         } else if (voiceMode) {
             Handler(Looper.getMainLooper()).postDelayed({
                 if (voiceMode && !isThinking) startVoiceInput()
@@ -457,10 +575,7 @@ class MainActivity : AppCompatActivity() {
         if (index >= actions.size) return
         val action = actions[index]
         val type = action.optString("type", "").trim()
-        if (type.isEmpty()) {
-            executeActionsSequentially(actions, index + 1)
-            return
-        }
+        if (type.isEmpty()) { executeActionsSequentially(actions, index + 1); return }
 
         val now = System.currentTimeMillis()
         actionTimestamps.removeAll { now - it > 3600_000L }
@@ -472,9 +587,7 @@ class MainActivity : AppCompatActivity() {
         logAction(type, action.toString())
 
         var delayMs = 500L
-        try {
-            delayMs = runAction(action)
-        } catch (e: Exception) {
+        try { delayMs = runAction(action) } catch (e: Exception) {
             updateStatus("Action failed: ${e.message}")
         }
 
@@ -494,7 +607,6 @@ class MainActivity : AppCompatActivity() {
             if (pkg != null) openApp(pkg, q) else openAppByQuery(q)
             return 2500L
         }
-
         if (type == "SEARCH_WEB") {
             val q = action.optString("query", "").trim()
             if (q.isEmpty()) return 300L
@@ -507,7 +619,6 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
             return 2200L
         }
-
         if (type == "WHATSAPP_MESSAGE") {
             notifyTap("WhatsApp draft")
             openWhatsAppMessage(
@@ -516,7 +627,6 @@ class MainActivity : AppCompatActivity() {
             )
             return 2000L
         }
-
         if (type == "SEND_SMS") {
             notifyTap("SMS draft")
             openSmsMessage(
@@ -525,16 +635,13 @@ class MainActivity : AppCompatActivity() {
             )
             return 2000L
         }
-
         if (type == "READ_SCREEN") {
             val svc = SkyAccessibilityService.instance
             if (svc == null) { updateStatus("Accessibility off"); return 300L }
             val text = svc.readScreen()
-            if (text.isBlank()) updateStatus("Nothing on screen")
-            else updateStatus("Screen read")
+            updateStatus(if (text.isBlank()) "Nothing on screen" else "Screen read")
             return 1000L
         }
-
         if (type == "READ_SCREEN_VISION") {
             val svc = SkyAccessibilityService.instance
             if (svc == null) { updateStatus("Accessibility off"); return 300L }
@@ -542,21 +649,16 @@ class MainActivity : AppCompatActivity() {
             updateStatus(if (text.isBlank()) "Nothing on screen" else "Screen read")
             return 1000L
         }
-
         if (type == "GO_BACK") {
             notifyTap("Back")
             SkyAccessibilityService.instance?.goBack()
-            updateStatus("Back")
             return 1200L
         }
-
         if (type == "GO_HOME") {
             notifyTap("Home")
             SkyAccessibilityService.instance?.goHome()
-            updateStatus("Home")
             return 1200L
         }
-
         if (type == "TAP") {
             val target = action.optString("target", "").trim()
             val svc = SkyAccessibilityService.instance
@@ -567,7 +669,6 @@ class MainActivity : AppCompatActivity() {
             updateStatus(if (ok) "Tapped $target" else "Not found: $target")
             return 2000L
         }
-
         if (type == "VISION_TAP") {
             val target = action.optString("target", "").trim()
             if (target.isEmpty()) return 300L
@@ -575,7 +676,6 @@ class MainActivity : AppCompatActivity() {
             doVisionTap(target)
             return 4500L
         }
-
         if (type == "TYPE") {
             val txt = action.optString("text", "").trim()
             val svc = SkyAccessibilityService.instance
@@ -583,25 +683,19 @@ class MainActivity : AppCompatActivity() {
             if (txt.isEmpty()) return 300L
             notifyTap("Type: ${txt.take(40)}")
             svc.typeText(txt)
-            updateStatus("Typed")
             return 1200L
         }
-
         if (type == "SCROLL_DOWN") {
             notifyTap("Scroll down")
             SkyAccessibilityService.instance?.scrollDown()
             return 1200L
         }
-
         if (type == "SCROLL_UP") {
             notifyTap("Scroll up")
             SkyAccessibilityService.instance?.scrollUp()
             return 1200L
         }
-
-        if (type == "WAIT") {
-            return action.optLong("ms", 1500L)
-        }
+        if (type == "WAIT") return action.optLong("ms", 1500L)
 
         updateStatus("Unknown action: $type")
         return 300L
@@ -611,8 +705,7 @@ class MainActivity : AppCompatActivity() {
         val svc = SkyAccessibilityService.instance
         if (svc == null) { updateStatus("Accessibility off"); return }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            updateStatus("Vision needs Android 11+")
-            return
+            updateStatus("Vision needs Android 11+"); return
         }
         svc.takeScreenshot { bitmap ->
             if (bitmap == null) { updateStatus("Screenshot failed"); return@takeScreenshot }
@@ -643,7 +736,6 @@ class MainActivity : AppCompatActivity() {
                         .put("width", scaled.width)
                         .put("height", scaled.height)
                         .toString()
-
                     conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
                     val code = conn.responseCode
@@ -655,16 +747,14 @@ class MainActivity : AppCompatActivity() {
                         try {
                             val obj = JSONObject(txt)
                             if (!obj.optBoolean("found", false)) {
-                                updateStatus("Vision: not found")
-                                return@runOnUiThread
+                                updateStatus("Vision: not found"); return@runOnUiThread
                             }
                             val x = obj.optDouble("x", -1.0).toFloat()
                             val y = obj.optDouble("y", -1.0).toFloat()
-                            val label = obj.optString("label", target)
                             if (x < 0 || y < 0) { updateStatus("Bad coords"); return@runOnUiThread }
                             val factor = 1f / scale
-                            val ok = svc.tapAt(x * factor, y * factor)
-                            updateStatus(if (ok) "Tapped $label" else "Tap failed")
+                            svc.tapAt(x * factor, y * factor)
+                            updateStatus("Tapped " + obj.optString("label", target))
                         } catch (e: Exception) {
                             updateStatus("Bad vision reply")
                         }
@@ -678,16 +768,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun resolvePackage(friendly: String): String? {
         val map = mapOf(
-            "whatsapp" to "com.whatsapp",
-            "chrome" to "com.android.chrome",
-            "browser" to "com.android.chrome",
-            "settings" to "com.android.settings",
-            "telegram" to "org.telegram.messenger",
-            "youtube" to "com.google.android.youtube",
-            "camera" to "com.sec.android.app.camera",
-            "instagram" to "com.instagram.android",
-            "facebook" to "com.facebook.katana",
-            "spotify" to "com.spotify.music",
+            "whatsapp" to "com.whatsapp", "chrome" to "com.android.chrome",
+            "browser" to "com.android.chrome", "settings" to "com.android.settings",
+            "telegram" to "org.telegram.messenger", "youtube" to "com.google.android.youtube",
+            "camera" to "com.sec.android.app.camera", "instagram" to "com.instagram.android",
+            "facebook" to "com.facebook.katana", "spotify" to "com.spotify.music",
             "gmail" to "com.google.android.gm"
         )
         val k = friendly.lowercase().trim()
@@ -699,23 +784,18 @@ class MainActivity : AppCompatActivity() {
     private fun openAppByQuery(query: String) {
         try {
             val pm = packageManager
-            val packages = pm.getInstalledPackages(0)
-            val lower = query.lowercase()
-            for (pkg in packages) {
+            for (pkg in pm.getInstalledPackages(0)) {
                 val info = pkg.applicationInfo ?: continue
                 val label = pm.getApplicationLabel(info).toString().lowercase()
-                if (label == lower || label.contains(lower)) {
+                if (label == query.lowercase() || label.contains(query.lowercase())) {
                     val launch = pm.getLaunchIntentForPackage(pkg.packageName) ?: continue
                     launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(launch)
-                    updateStatus("Opening $query")
                     return
                 }
             }
             updateStatus("Not installed: $query")
-        } catch (e: Exception) {
-            updateStatus("Could not open $query")
-        }
+        } catch (e: Exception) { updateStatus("Could not open $query") }
     }
 
     private fun openApp(packageName: String, appName: String) {
@@ -724,28 +804,22 @@ class MainActivity : AppCompatActivity() {
             if (i != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(i)
-                updateStatus("Opening $appName")
             } else updateStatus("$appName not installed")
-        } catch (e: Exception) {
-            updateStatus("Could not open $appName")
-        }
+        } catch (e: Exception) { updateStatus("Could not open $appName") }
     }
 
     private fun openWhatsAppMessage(to: String, message: String) {
         val msg = URLEncoder.encode(message, "UTF-8")
         val num = to.replace(Regex("[^0-9+]"), "")
-        val url = if (num.isNotEmpty() && num.length >= 7)
-            "https://wa.me/$num?text=$msg"
-        else "https://wa.me/?text=$msg"
+        val url = if (num.isNotEmpty() && num.length >= 7) "https://wa.me/$num?text=$msg"
+                  else "https://wa.me/?text=$msg"
         try {
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(i)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i)
         } catch (e: Exception) {
             try {
                 val f = Intent(Intent.ACTION_VIEW, Uri.parse("whatsapp://send?text=$msg"))
-                f.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(f)
+                f.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(f)
             } catch (e2: Exception) { updateStatus("WhatsApp not installed") }
         }
     }
@@ -754,16 +828,14 @@ class MainActivity : AppCompatActivity() {
         val msg = URLEncoder.encode(message, "UTF-8")
         try {
             val i = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$to?body=$msg"))
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(i)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i)
         } catch (e: Exception) { updateStatus("SMS failed") }
     }
 
     private fun createTapChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(
-                TAP_CHANNEL_ID, "Sky Actions",
-                NotificationManager.IMPORTANCE_LOW
+                TAP_CHANNEL_ID, "Sky Actions", NotificationManager.IMPORTANCE_LOW
             ).apply { description = "Shows what Sky is doing" }
             getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
@@ -777,13 +849,9 @@ class MainActivity : AppCompatActivity() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             val notif = NotificationCompat.Builder(this, TAP_CHANNEL_ID)
-                .setContentTitle("Sky: $label")
-                .setContentText("Tap STOP to halt.")
+                .setContentTitle("Sky: $label").setContentText("Tap STOP to halt.")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-                .setOnlyAlertOnce(true)
-                .build()
+                .setContentIntent(pi).setAutoCancel(true).setOnlyAlertOnce(true).build()
             nm.notify(TAP_NOTIF_ID, notif)
         } catch (e: Exception) {}
     }
