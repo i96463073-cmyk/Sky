@@ -6,11 +6,9 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
         android:label="SKY AI SIGNALS"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Sky">
+        android:theme="@style/Theme.AppCompat.NoActionBar">
 
         <activity
             android:name="com.sky.agent.MainActivity"
