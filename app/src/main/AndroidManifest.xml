@@ -9,7 +9,7 @@
         android:label="Sky AI"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Theme.AppCompat.NoActionBar"> <!-- THIS IS THE FIX -->
         
         <activity
             android:name=".MainActivity"
