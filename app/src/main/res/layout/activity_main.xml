@@ -1,296 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/dark">
+    android:background="#0F172A"
+    android:fillViewport="true">
 
-    <!-- HEADER -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="#0F1420">
+        android:orientation="vertical"
+        android:padding="16dp">
 
+        <!-- Header -->
         <TextView
-            android:text="SKY"
-            android:textColor="@color/white"
-            android:textStyle="bold"
-            android:textSize="22sp"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content" />
-
-        <TextView
-            android:text="Voice"
-            android:textColor="@color/muted"
-            android:textSize="12sp"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="4dp" />
+            android:text="Sky AI Forex Signals"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
 
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/voiceSwitch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+        <!-- Refresh Button -->
+        <Button
+            android:id="@+id/btnRefresh"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Refresh Signals"
+            android:backgroundTint="#3B82F6"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="24dp"/>
 
-        <ImageButton
-            android:id="@+id/settingsButton"
-            android:src="@android:drawable/ic_menu_preferences"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Settings"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="6dp" />
-    </LinearLayout>
-
-    <!-- SETTINGS PANEL (collapsible) -->
-    <ScrollView
-        android:id="@+id/settingsPanel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:visibility="gone"
-        android:background="#0A0E18">
+        <!-- Pending Signals Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⏳ Pending Signals"
+            android:textColor="#F59E0B"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
 
         <LinearLayout
+            android:id="@+id/pendingContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="14dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="AI Assistant"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/aiSwitch"
-                    android:checked="true"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="Wake word (Alexa)"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/wakeSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="Allow screen control"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/screenSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="Allow typing"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/typeSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="Calling — ask first"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/callSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="Payments — always ask"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/paymentSwitch"
-                    android:checked="true"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp">
-
-                <TextView
-                    android:text="MT5 trading — OFF"
-                    android:textColor="@color/white"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content" />
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/tradeSwitch"
-                    android:checked="false"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/stopButton"
-                android:text="STOP SKY NOW"
-                android:textStyle="bold"
-                android:textColor="@color/white"
-                android:backgroundTint="#C62828"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="10dp" />
-
-            <Button
-                android:id="@+id/clearChatButton"
-                android:text="Clear chat"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp" />
+            android:layout_marginBottom="24dp">
+            <!-- Pending trades will be added here dynamically -->
         </LinearLayout>
-    </ScrollView>
 
-    <!-- CHAT AREA -->
-    <ScrollView
-        android:id="@+id/chatScroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:padding="12dp"
-        android:background="@color/dark">
-
-        <LinearLayout
-            android:id="@+id/chatContainer"
+        <!-- Completed Signals Section -->
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
+            android:text="✅ Completed Signals"
+            android:textColor="#10B981"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
 
-    <!-- STATUS LINE -->
-    <TextView
-        android:id="@+id/status"
-        android:text="Ready"
-        android:textColor="@color/muted"
-        android:textSize="12sp"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#0A0E18" />
+        <LinearLayout
+            android:id="@+id/completedContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            <!-- Completed trades will be added here dynamically -->
+        </LinearLayout>
 
-    <!-- INPUT BAR -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="10dp"
-        android:background="#0F1420"
-        android:gravity="center_vertical">
-
-        <EditText
-            android:id="@+id/commandInput"
-            android:hint="Ask Sky..."
-            android:textColor="@color/white"
-            android:textColorHint="@color/muted"
-            android:background="#1A2030"
-            android:padding="12dp"
-            android:maxLines="4"
-            android:inputType="textMultiLine|textCapSentences"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content" />
-
-        <ImageButton
-            android:id="@+id/micButton"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Microphone"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
-            android:layout_marginStart="4dp" />
-
-        <ImageButton
-            android:id="@+id/sendButton"
-            android:src="@android:drawable/ic_menu_send"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Send"
-            android:layout_width="46dp"
-            android:layout_height="46dp" />
     </LinearLayout>
-</LinearLayout>
+</androidx.core.widget.NestedScrollView>
