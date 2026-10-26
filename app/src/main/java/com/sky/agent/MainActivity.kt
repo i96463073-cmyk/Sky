@@ -8,6 +8,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.skyai.app.R // <--- THIS WAS MISSING
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
