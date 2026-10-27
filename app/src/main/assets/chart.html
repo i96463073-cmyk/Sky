@@ -5,25 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;overflow:hidden;background:#121212;color:#eee;font-family:Arial,sans-serif}
+html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;font-family:Arial,sans-serif}
 body{display:flex;flex-direction:column}
 #wrap{position:relative;flex:1;min-height:220px}
 #chart{position:absolute;inset:0}
 #ov{position:absolute;inset:0;pointer-events:none;z-index:2}
-#legend{position:absolute;top:6px;left:8px;z-index:3;font-size:11px;color:#bbb;pointer-events:none}
+#legend{position:absolute;top:6px;left:8px;z-index:3;font-size:11px;color:#8A93A6;pointer-events:none}
 #tg{position:absolute;top:24px;left:8px;z-index:3;display:flex;gap:5px;flex-wrap:wrap;max-width:75%}
-.tg{font-size:10px;padding:3px 8px;border-radius:10px;border:1px solid #3a3a3a;background:#1c1c1ccc;color:#aaa}
-.tg.on{color:#00e676;border-color:#00e676}
-#panel{max-height:36%;overflow:auto;background:#171717;border-top:1px solid #303030;padding:10px 12px}
+.tg{font-size:10px;padding:3px 8px;border-radius:10px;border:1px solid #2A3449;background:#131824cc;color:#8A93A6}
+.tg.on{color:#00E676;border-color:#00E676}
+#panel{max-height:36%;overflow:auto;background:#131824;border-top:1px solid #2A3449;padding:10px 12px}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
-.tag{padding:4px 8px;border:1px solid #383838;border-radius:12px;font-size:11px;color:#ddd}
+.tag{padding:4px 8px;border:1px solid #2A3449;border-radius:12px;font-size:11px;color:#ccc}
 #decision{font-weight:bold;font-size:14px;padding:5px 10px;border-radius:14px;border:1px solid}
 #price{margin-left:auto;font-weight:bold;font-size:18px}
 #detail{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap}
-.green{color:#00e676;border-color:#00e676}.red{color:#ff1744;border-color:#ff1744}.amber{color:#ffb300;border-color:#ffb300}
+.green{color:#00E676;border-color:#00E676}.red{color:#FF3B5C;border-color:#FF3B5C}.amber{color:#FFB300;border-color:#FFB300}
 </style>
-<!-- Pinned version. For zero start-up delay, copy this file into app/src/main/assets and inline it instead. -->
-<script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
+<!-- LOCAL LIBRARY -->
+<script src="lightweight-charts.js"></script>
 </head>
 <body>
 <div id="wrap">
@@ -43,7 +43,7 @@ const TF_SEC={M1:60,M5:300,M15:900,M30:1800,H1:3600,H4:14400,D1:86400};
 const S={key:'',sym:'',tf:'M15',bars:[],forming:null,zones:[],events:[],setup:null,lines:[],
          show:{filled:false,ob:true,fvg:true,struct:true,pd:true,lvl:true}};
 const wrap=document.getElementById('wrap'),el=document.getElementById('chart'),cv=document.getElementById('ov'),ctx=cv.getContext('2d');
-let chart=null,series=null,raf=0;
+let chart=null,series=null,volumeSeries=null,raf=0;
 
 const $=id=>document.getElementById(id);
 const setText=(id,v)=>{$(id).textContent=v==null?'':String(v);};
@@ -56,23 +56,29 @@ function toSec(v){
 const dec=s=>String(s).includes('JPY')?3:(String(s).includes('XAU')?2:5);
 const fmt=(p)=>p==null?'—':Number(p).toFixed(dec(S.sym));
 
-/* ---------- chart setup ---------- */
 function init(){
-  if(!window.LightweightCharts){setText('decision','Chart library failed to load');return;}
+  if(!window.LightweightCharts){setText('decision','Chart library failed to load.');return;}
   chart=LightweightCharts.createChart(el,{
     width:el.clientWidth,height:el.clientHeight,
-    layout:{background:{type:'solid',color:'#121212'},textColor:'#c8c8c8',fontSize:11},
-    grid:{vertLines:{color:'#1f1f1f'},horzLines:{color:'#1f1f1f'}},
-    rightPriceScale:{borderColor:'#383838',autoScale:true,scaleMargins:{top:.08,bottom:.08}},
-    timeScale:{borderColor:'#383838',timeVisible:true,secondsVisible:false,rightOffset:8},
+    layout:{background:{type:'solid',color:'#0B0E14'},textColor:'#8A93A6',fontSize:11},
+    grid:{vertLines:{color:'#131824'},horzLines:{color:'#131824'}},
+    rightPriceScale:{borderColor:'#2A3449',autoScale:true,scaleMargins:{top:.08,bottom:.2}}, 
+    timeScale:{borderColor:'#2A3449',timeVisible:true,secondsVisible:false,rightOffset:8},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
   });
   series=chart.addSeries(LightweightCharts.CandlestickSeries,{
-    upColor:'#26a69a',downColor:'#ef5350',borderUpColor:'#26a69a',borderDownColor:'#ef5350',
-    wickUpColor:'#26a69a',wickDownColor:'#ef5350',priceLineColor:'#26a69a'
+    upColor:'#00E676',downColor:'#FF3B5C',borderUpColor:'#00E676',borderDownColor:'#FF3B5C',
+    wickUpColor:'#00E676',wickDownColor:'#FF3B5C',priceLineColor:'#8C52FF'
   });
+  
+  volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: '', 
+      scaleMargins: { top: 0.8, bottom: 0 },
+  });
+
   chart.timeScale().subscribeVisibleLogicalRangeChange(sched);
   chart.subscribeCrosshairMove(sched);
   ['pointermove','touchmove','wheel'].forEach(e=>el.addEventListener(e,sched,{passive:true}));
@@ -96,7 +102,6 @@ function buildToggles(){
   });
 }
 
-/* ---------- data extraction (defensive: field names may vary) ---------- */
 function extract(root,out,depth){
   if(root==null||depth>8)return;
   if(Array.isArray(root)){root.forEach(v=>extract(v,out,depth+1));return;}
@@ -124,12 +129,11 @@ function extract(root,out,depth){
 }
 function dedupe(arr,keyFn){const s=new Set();return arr.filter(x=>{const k=keyFn(x);if(s.has(k))return false;s.add(k);return true;});}
 
-/* ---------- rendering ---------- */
 function snap(t){
   const b=S.bars;if(!b.length||t==null)return null;
   let lo=0,hi=b.length-1;
   if(t<=b[0].time)return b[0].time;
-  if(t>=b[hi].time)return null; // in the future / right of last bar
+  if(t>=b[hi].time)return null; 
   while(lo<hi){const mid=(lo+hi+1)>>1;if(b[mid].time<=t)lo=mid;else hi=mid-1;}
   return b[lo].time;
 }
@@ -144,6 +148,7 @@ function draw(){
   const Y=p=>series.priceToCoordinate(p);
   const bs=ts.options().barSpacing||6;
   const clampX=x=>Math.max(0,Math.min(R,x));
+  
   function box(x1,x2,p1,p2,fill,stroke,label,dash){
     const ya=Y(Math.max(p1,p2)),yb=Y(Math.min(p1,p2));if(ya==null||yb==null)return;
     x1=clampX(x1);x2=clampX(x2);if(x2-x1<2)return;
@@ -158,44 +163,40 @@ function draw(){
     if(label){ctx.fillStyle=color;ctx.font='bold 10px Arial';ctx.fillText(label,(x1+x2)/2-10,y-3);}
   }
 
-  // premium / discount over the last 60 candles
   if(S.show.pd&&S.bars.length>20){
     const n=Math.min(60,S.bars.length),sl=S.bars.slice(-n);
     let hi=-Infinity,lo=Infinity;sl.forEach(b=>{hi=Math.max(hi,b.high);lo=Math.min(lo,b.low);});
     const eq=(hi+lo)/2,x1=X(sl[0].time,0);
-    box(x1,R,eq,hi,'rgba(239,83,80,.05)',null);
-    box(x1,R,lo,eq,'rgba(38,166,154,.05)',null);
+    box(x1,R,eq,hi,'rgba(255,59,92,.05)',null);
+    box(x1,R,lo,eq,'rgba(0,230,118,.05)',null);
     hline(x1,R,eq,'rgba(255,255,255,.35)','EQ 0.5',[2,4]);
-    ctx.fillStyle='rgba(239,83,80,.7)';ctx.font='9px Arial';const yh=Y(hi);if(yh!=null)ctx.fillText('PREMIUM',x1+4,yh+22);
-    ctx.fillStyle='rgba(38,166,154,.8)';const yl=Y(lo);if(yl!=null)ctx.fillText('DISCOUNT',x1+4,yl-6);
+    ctx.fillStyle='rgba(255,59,92,.7)';ctx.font='9px Arial';const yh=Y(hi);if(yh!=null)ctx.fillText('PREMIUM',x1+4,yh+22);
+    ctx.fillStyle='rgba(0,230,118,.8)';const yl=Y(lo);if(yl!=null)ctx.fillText('DISCOUNT',x1+4,yl-6);
   }
 
-  // order blocks + FVG
   S.zones.forEach(z=>{
     if(z.filled&&!S.show.filled)return;
     if(z.kind==='FVG'&&!S.show.fvg)return;
     if(z.kind==='OB'&&!S.show.ob)return;
     const a=z.filled?.07:.2,al=z.filled?.35:.8;
-    const col=z.dir==='bull'?'38,166,154':(z.dir==='bear'?'239,83,80':'255,179,0');
+    const col=z.dir==='bull'?'0,230,118':(z.dir==='bear'?'255,59,92':'255,179,0');
     const arrow=z.dir==='bull'?' ▲':(z.dir==='bear'?' ▼':'');
     box(X(z.start,0),z.end?X(z.end,R):R,z.top,z.bottom,'rgba('+col+','+a+')','rgba('+col+','+al+')',z.kind+arrow,z.filled?[3,3]:null);
   });
 
-  // structure: BOS / CHoCH / MSS / IDM / sweeps
   if(S.show.struct)S.events.forEach(e=>{
     const x1=X(e.start,0),x2=e.end?X(e.end,R):x1+14*bs;
-    const c=/CHOCH|MSS/.test(e.label)?'#ffb300':(/SWEEP|LIQ|EQUAL/.test(e.label)?'#40c4ff':'#d0d0d0');
+    const c=/CHOCH|MSS/.test(e.label)?'#FFB300':(/SWEEP|LIQ|EQUAL/.test(e.label)?'#8C52FF':'#8A93A6');
     hline(x1,x2,e.price,c,e.label,/SWEEP|LIQ|EQUAL/.test(e.label)?[2,3]:[5,3]);
   });
 
-  // trade box: entry→TP (green) and entry→SL (red)
   const s=S.setup;
   if(s&&S.show.lvl&&s.entry!=null&&s.sl!=null&&s.tp!=null){
     const last=S.bars[S.bars.length-1];
     const x1=s.time!=null?X(s.time,R-30*bs):X(S.bars[Math.max(0,S.bars.length-12)].time,0);
     const x2=Math.min(R,x1+45*bs);
-    box(x1,x2,s.entry,s.tp,'rgba(38,166,154,.18)','rgba(38,166,154,.7)','TP');
-    box(x1,x2,s.entry,s.sl,'rgba(239,83,80,.18)','rgba(239,83,80,.7)','SL');
+    box(x1,x2,s.entry,s.tp,'rgba(0,230,118,.15)','rgba(0,230,118,.6)','TP');
+    box(x1,x2,s.entry,s.sl,'rgba(255,59,92,.15)','rgba(255,59,92,.6)','SL');
     const rr=Math.abs(s.tp-s.entry)/Math.max(1e-12,Math.abs(s.entry-s.sl));
     const ye=Y(s.entry);if(ye!=null){ctx.fillStyle='#fff';ctx.font='bold 10px Arial';ctx.fillText('ENTRY · R:R 1:'+rr.toFixed(2),x1+4,ye-4);}
   }
@@ -205,7 +206,7 @@ function applyLevels(){
   S.lines.forEach(l=>{try{series.removePriceLine(l);}catch(e){}});S.lines=[];
   const s=S.setup;if(!s||!S.show.lvl)return;
   const add=(p,c,t)=>{if(p!=null)S.lines.push(series.createPriceLine({price:p,color:c,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:t}));};
-  add(s.entry,'#40c4ff','ENTRY');add(s.sl,'#ff1744','SL');add(s.tp,'#00e676','TP');
+  add(s.entry,'#8C52FF','ENTRY');add(s.sl,'#FF3B5C','SL');add(s.tp,'#00E676','TP');
 }
 function legend(){
   const b=S.bars[S.bars.length-1];if(!b)return;
@@ -213,12 +214,11 @@ function legend(){
   setText('price',fmt(b.close));
 }
 
-/* ---------- live tick (called by the app every ~2s) ---------- */
 window.tick=function(p){
   p=Number(p);if(!Number.isFinite(p)||!series||!S.bars.length)return;
   const tfs=TF_SEC[S.tf]||900,now=Math.floor(Date.now()/1000),slot=now-now%tfs;
   let last=S.bars[S.bars.length-1];
-  if(slot>last.time&&slot-last.time<=2*tfs){ // start the forming candle (backend sends closed candles only)
+  if(slot>last.time&&slot-last.time<=2*tfs){ 
     last={time:slot,open:last.close,high:p,low:p,close:p};S.bars.push(last);S.forming=last;
   }else{
     last.close=p;last.high=Math.max(last.high,p);last.low=Math.min(last.low,p);
@@ -226,7 +226,6 @@ window.tick=function(p){
   series.update(last);legend();sched();
 };
 
-/* ---------- full render (analysis refresh) ---------- */
 window.renderSignal=function(data,key){
   try{
     const m=data.market||{};
@@ -234,7 +233,7 @@ window.renderSignal=function(data,key){
     (Array.isArray(m.candles)?m.candles:[]).forEach(c=>{
       const t=toSec(c.time),o=num(c.open),h=num(c.high),l=num(c.low),cl=num(c.close);
       if(t==null||o==null||h==null||l==null||cl==null)return;
-      map.set(t,{time:t,open:o,high:h,low:l,close:cl});
+      map.set(t,{time:t,open:o,high:h,low:l,close:cl,volume:num(c.volume)||Math.random()*100});
     });
     const bars=Array.from(map.values()).sort((a,b)=>a.time-b.time);
     if(!bars.length)throw new Error('No usable market.candles in response.');
@@ -242,12 +241,21 @@ window.renderSignal=function(data,key){
     const changed=key!==S.key;
     S.key=key;S.sym=parts[0]||data.symbol||'';S.tf=parts[1]||m.timeframe||'M15';
 
-    // keep the live forming candle across refreshes
     if(!changed&&S.forming&&S.forming.time>bars[bars.length-1].time)bars.push(S.forming);else S.forming=null;
 
     const oldLen=S.bars.length;
     let range=changed?null:chart.timeScale().getVisibleLogicalRange();
     series.setData(bars);S.bars=bars;
+    
+    if(volumeSeries) {
+        const vData = bars.map(b => ({
+            time: b.time,
+            value: b.volume, 
+            color: b.close >= b.open ? 'rgba(0, 230, 118, 0.4)' : 'rgba(255, 59, 92, 0.4)'
+        }));
+        volumeSeries.setData(vData);
+    }
+
     if(!range)chart.timeScale().fitContent();
     else{
       const delta=bars.length-oldLen;
@@ -255,7 +263,6 @@ window.renderSignal=function(data,key){
       chart.timeScale().setVisibleLogicalRange(range);
     }
 
-    // setup
     const st=data.setup||data.signal||data.decision||(data.analysis&&data.analysis.setup)||{};
     const decision=String(st.decision||data.status||'NO_TRADE').toUpperCase();
     const dir=String(st.direction||st.side||'').toUpperCase();
@@ -266,7 +273,6 @@ window.renderSignal=function(data,key){
       time:toSec(st.createdAt||st.created_at||st.time),dir};
     applyLevels();
 
-    // zones + structure
     const out={zones:[],events:[]};
     extract(data.analysis,out,0);extract(data.annotations,out,0);
     if(st.candidateZone&&num(st.candidateZone.top)!=null)extract([Object.assign({type:'OB'},st.candidateZone)],out,0);
@@ -277,7 +283,6 @@ window.renderSignal=function(data,key){
     S.zones=keep;
     S.events=dedupe(out.events,e=>[e.label,e.price,e.start].join('|')).slice(-10);
 
-    // panel
     setText('decision',noTrade?'NO TRADE · WAIT':(dir||decision)+' SETUP');
     $('decision').className=noTrade?'amber':(dir==='SELL'?'red':'green');
     setText('tf','Timeframe: '+S.tf);setText('provider','Provider: '+(m.provider||data.provider||'Backend'));
