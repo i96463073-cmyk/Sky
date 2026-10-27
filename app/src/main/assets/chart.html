@@ -22,8 +22,8 @@ body{display:flex;flex-direction:column}
 #detail{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap}
 .green{color:#00E676;border-color:#00E676}.red{color:#FF3B5C;border-color:#FF3B5C}.amber{color:#FFB300;border-color:#FFB300}
 </style>
-<!-- LOCAL LIBRARY -->
-<script src="lightweight-charts.js"></script>
+<!-- LOCAL LIBRARY WITH ERROR CATCHING -->
+<script src="lightweight-charts.js" onerror="window.CHART_LIB_ERROR = true;"></script>
 </head>
 <body>
 <div id="wrap">
@@ -57,34 +57,53 @@ const dec=s=>String(s).includes('JPY')?3:(String(s).includes('XAU')?2:5);
 const fmt=(p)=>p==null?'—':Number(p).toFixed(dec(S.sym));
 
 function init(){
-  if(!window.LightweightCharts){setText('decision','Chart library failed to load.');return;}
-  chart=LightweightCharts.createChart(el,{
-    width:el.clientWidth,height:el.clientHeight,
-    layout:{background:{type:'solid',color:'#0B0E14'},textColor:'#8A93A6',fontSize:11},
-    grid:{vertLines:{color:'#131824'},horzLines:{color:'#131824'}},
-    rightPriceScale:{borderColor:'#2A3449',autoScale:true,scaleMargins:{top:.08,bottom:.2}}, 
-    timeScale:{borderColor:'#2A3449',timeVisible:true,secondsVisible:false,rightOffset:8},
-    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-    handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
-    handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
-  });
-  series=chart.addSeries(LightweightCharts.CandlestickSeries,{
-    upColor:'#00E676',downColor:'#FF3B5C',borderUpColor:'#00E676',borderDownColor:'#FF3B5C',
-    wickUpColor:'#00E676',wickDownColor:'#FF3B5C',priceLineColor:'#8C52FF'
-  });
+  if(window.CHART_LIB_ERROR) {
+    setText('decision','Missing File');
+    setText('detail','The app could not find lightweight-charts.js in the assets folder. Please check your GitHub repo.');
+    return;
+  }
+  if(!window.LightweightCharts){
+    setText('decision','Library Not Loaded');
+    setText('detail','The chart library failed to initialize.');
+    return;
+  }
   
-  volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: '', 
-      scaleMargins: { top: 0.8, bottom: 0 },
-  });
+  try {
+    const w = el.clientWidth || window.innerWidth || 300;
+    const h = el.clientHeight || window.innerHeight || 300;
 
-  chart.timeScale().subscribeVisibleLogicalRangeChange(sched);
-  chart.subscribeCrosshairMove(sched);
-  ['pointermove','touchmove','wheel'].forEach(e=>el.addEventListener(e,sched,{passive:true}));
-  const resize=()=>{chart.applyOptions({width:el.clientWidth,height:el.clientHeight});sizeCanvas();sched();};
-  if(window.ResizeObserver)new ResizeObserver(resize).observe(el);else window.addEventListener('resize',resize);
-  sizeCanvas();buildToggles();
+    chart=LightweightCharts.createChart(el,{
+      width: w, height: h,
+      layout:{background:{type:'solid',color:'#0B0E14'},textColor:'#8A93A6',fontSize:11},
+      grid:{vertLines:{color:'#131824'},horzLines:{color:'#131824'}},
+      rightPriceScale:{borderColor:'#2A3449',autoScale:true,scaleMargins:{top:.08,bottom:.2}}, 
+      timeScale:{borderColor:'#2A3449',timeVisible:true,secondsVisible:false,rightOffset:8},
+      crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+      handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
+      handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
+    });
+    
+    series=chart.addSeries(LightweightCharts.CandlestickSeries,{
+      upColor:'#00E676',downColor:'#FF3B5C',borderUpColor:'#00E676',borderDownColor:'#FF3B5C',
+      wickUpColor:'#00E676',wickDownColor:'#FF3B5C',priceLineColor:'#8C52FF'
+    });
+    
+    volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+        priceFormat: { type: 'volume' },
+        priceScaleId: '', 
+        scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(sched);
+    chart.subscribeCrosshairMove(sched);
+    ['pointermove','touchmove','wheel'].forEach(e=>el.addEventListener(e,sched,{passive:true}));
+    const resize=()=>{if(chart){chart.applyOptions({width:el.clientWidth,height:el.clientHeight});sizeCanvas();sched();}};
+    if(window.ResizeObserver)new ResizeObserver(resize).observe(el);else window.addEventListener('resize',resize);
+    sizeCanvas();buildToggles();
+  } catch(e) {
+    setText('decision','Init Error');
+    setText('detail', String(e.message));
+  }
 }
 function sizeCanvas(){
   const d=window.devicePixelRatio||1;
@@ -203,6 +222,7 @@ function draw(){
 }
 
 function applyLevels(){
+  if(!series) return;
   S.lines.forEach(l=>{try{series.removePriceLine(l);}catch(e){}});S.lines=[];
   const s=S.setup;if(!s||!S.show.lvl)return;
   const add=(p,c,t)=>{if(p!=null)S.lines.push(series.createPriceLine({price:p,color:c,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:t}));};
@@ -215,7 +235,8 @@ function legend(){
 }
 
 window.tick=function(p){
-  p=Number(p);if(!Number.isFinite(p)||!series||!S.bars.length)return;
+  if(!chart||!series) return;
+  p=Number(p);if(!Number.isFinite(p)||!S.bars.length)return;
   const tfs=TF_SEC[S.tf]||900,now=Math.floor(Date.now()/1000),slot=now-now%tfs;
   let last=S.bars[S.bars.length-1];
   if(slot>last.time&&slot-last.time<=2*tfs){ 
@@ -227,6 +248,11 @@ window.tick=function(p){
 };
 
 window.renderSignal=function(data,key){
+  if(!chart || !series) {
+    setText('decision','Chart Not Ready');
+    setText('detail','The charting engine failed to initialize. Please check that lightweight-charts.js is uploaded correctly.');
+    return;
+  }
   try{
     const m=data.market||{};
     const map=new Map();
