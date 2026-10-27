@@ -37,11 +37,11 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.sky.agent.R // <--- THIS IS THE FIXED IMPORT
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -77,6 +77,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCloseChat: TextView
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
+    private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val POLL_MS = 5000L
 
     private val BG = Color.parseColor("#121212")
@@ -403,7 +404,7 @@ class MainActivity : AppCompatActivity() {
         val tvSymbol = makeText(symbol, 20f, Color.WHITE, true)
         tvSymbol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         top.addView(tvSymbol)
-        
+
         if (quality.isNotEmpty()) {
             val qColor = when (quality) { "A+" -> GREEN; "A" -> AMBER; "REJECTED" -> RED; else -> MUTED }
             val q = pill(quality, qColor)
@@ -430,7 +431,7 @@ class MainActivity : AppCompatActivity() {
         val meta = ArrayList<String>()
         s.str("risk_level").takeIf { it.isNotEmpty() }?.let { meta.add("Risk: $it") }
         if (rrBackend.isNotEmpty()) meta.add("R:R $rrBackend") else check.first?.let { meta.add(String.format(Locale.US, "R:R 1:%.2f (calculated)", it)) }
-        
+
         if (meta.isNotEmpty()) {
             val m = makeText(meta.joinToString("  ·  "), 12f, MUTED)
             m.setPadding(0, dp(12), 0, 0); card.addView(m)
@@ -482,7 +483,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatPrice(symbol: String, v: Double): String {
-        if (v.isNaN() || v == 0.0) return "—"
+        if (v.isNaN() || v == 0.0 || v.isInfinite()) return "—"
         val decimals = when { symbol.contains("XAU") -> 2; symbol.contains("JPY") -> 3; else -> 5 }
         return String.format(Locale.US, "%.${decimals}f", v)
     }
@@ -495,7 +496,7 @@ class MainActivity : AppCompatActivity() {
                 val parser = SimpleDateFormat(p, Locale.US); parser.timeZone = TimeZone.getTimeZone("UTC")
                 val date = parser.parse(isoString) ?: continue
                 return SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(date)
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
         }
         return isoString
     }
@@ -554,91 +555,339 @@ class MainActivity : AppCompatActivity() {
         return ""
     }
 
-    private fun buildChartHtml(tvSymbol: String): String {
-        val sym = JSONObject.quote(tvSymbol)
-        return """
-<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#121212}#tradingview_chart{width:100%;height:100%}</style></head><body>
-<div id="tradingview_chart"></div>
-<script src="https://s3.tradingview.com/tv.js" onerror="document.title='tv_error'"></script>
-<script>
-try { new TradingView.widget({ autosize: true, symbol: $sym, interval: "15", timezone: "Etc/UTC", theme: "dark", style: "1", locale: "en", enable_publishing: false, hide_top_toolbar: false, hide_legend: false, save_image: false, container_id: "tradingview_chart" }); } 
-catch (e) { document.title = 'tv_error'; }
-</script></body></html>
-""".trimIndent()
+    // Loads the real candles and SMC decision data from the existing Cloudflare Worker.
+    private fun loadSignalData(symbol: String, timeframe: String, callback: (JSONObject?, String?) -> Unit) {
+        thread {
+            var connection: HttpURLConnection? = null
+            try {
+                val s = URLEncoder.encode(symbol, "UTF-8")
+                val tf = URLEncoder.encode(timeframe, "UTF-8")
+                val endpoint = "$SIGNAL_WORKER_BASE/test-signal?symbol=$s&timeframe=$tf"
+                connection = URL(endpoint).openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 15000
+                connection.readTimeout = 20000
+                connection.setRequestProperty("Accept", "application/json")
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (code !in 200..299) throw IllegalStateException("HTTP $code: ${body.take(180)}")
+                val json = JSONObject(body)
+                if (!json.optBoolean("ok", false)) throw IllegalStateException(json.optString("error", "Signal endpoint returned ok=false"))
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) callback(json, null)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) callback(null, e.message ?: "Unable to load backend candles")
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
     }
+
+    private fun buildChartHtml(): String = """
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+*{box-sizing:border-box}html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#121212;color:#eee;font-family:Arial,sans-serif}
+body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:220px;flex:1}
+#panel{height:38%;min-height:145px;overflow:auto;background:#171717;border-top:1px solid #303030;padding:10px 12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.tag{padding:5px 8px;border:1px solid #383838;border-radius:12px;font-size:11px;color:#ddd}
+#decision{font-weight:bold;font-size:15px}#price{color:#00e676;font-weight:bold}#detail{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap}
+.green{color:#00e676}.red{color:#ff1744}.amber{color:#ffb300}
+</style>
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<div id="chart"></div>
+<div id="panel">
+ <div class="row"><span id="decision">Loading backend data…</span><span id="price"></span></div>
+ <div class="row"><span class="tag" id="tf">Timeframe: M15</span><span class="tag" id="provider">Provider: —</span><span class="tag" id="count">Candles: —</span></div>
+ <div id="detail">Waiting for the signal engine.</div>
+</div>
+<script>
+(function(){
+ const el=document.getElementById('chart');
+ let chart=null, candles=null, volumeSeries=null, lastLines=[];
+ function setText(id,value){document.getElementById(id).textContent=value==null?'':String(value);}
+ function finite(v){return typeof v==='number' && Number.isFinite(v);}
+ function firstNumber(obj,keys){for(const k of keys){const v=obj&&obj[k];if(typeof v==='number'&&Number.isFinite(v))return v;if(typeof v==='string'&&v.trim()!==''&&Number.isFinite(Number(v)))return Number(v);}return null;}
+ function setupObject(data){return data.setup||data.signal||data.decision||data.analysis?.setup||{};}
+ function removeLines(){if(candles){for(const line of lastLines){try{candles.removePriceLine(line);}catch(e){}}}lastLines=[];}
+ function addLine(price,color,title,style){
+   if(!candles||!finite(price))return;
+   lastLines.push(candles.createPriceLine({price:price,color:color,lineWidth:1,lineStyle:style||2,axisLabelVisible:true,title:title}));
+ }
+ function init(){
+   if(!window.LightweightCharts){setText('decision','Chart library failed to load. Check internet connection.');return;}
+   chart=LightweightCharts.createChart(el,{
+     width:el.clientWidth,height:el.clientHeight,
+     layout:{background:{type:'solid',color:'#121212'},textColor:'#c8c8c8',fontSize:11},
+     grid:{vertLines:{color:'#242424'},horzLines:{color:'#242424'}},
+     rightPriceScale:{borderColor:'#383838',autoScale:true},
+     timeScale:{borderColor:'#383838',timeVisible:true,secondsVisible:false,rightOffset:5},
+     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
+     handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
+   });
+   candles=chart.addSeries(LightweightCharts.CandlestickSeries,{
+     upColor:'#00e676',downColor:'#ff1744',borderUpColor:'#00e676',borderDownColor:'#ff1744',
+     wickUpColor:'#00e676',wickDownColor:'#ff1744'
+   });
+   const resize=()=>{if(chart){chart.applyOptions({width:el.clientWidth,height:el.clientHeight});}};
+   if(window.ResizeObserver)new ResizeObserver(resize).observe(el);else window.addEventListener('resize',resize);
+ }
+ function flattenObjects(value,out,depth){
+   if(depth>7||value==null)return;
+   if(Array.isArray(value)){value.forEach(v=>flattenObjects(v,out,depth+1));return;}
+   if(typeof value!=='object')return;
+   if((String(value.type||'').toUpperCase().includes('FVG')||String(value.label||'').toLowerCase().includes('fair value gap')) &&
+      (finite(value.top)||finite(value.bottom)||finite(value.price)))out.push(value);
+   Object.keys(value).forEach(k=>{if(typeof value[k]==='object'&&value[k]!==null)flattenObjects(value[k],out,depth+1);});
+ }
+ function render(data){
+   try{
+     const market=data.market||{};
+     const raw=Array.isArray(market.candles)?market.candles:[];
+     const map=new Map();
+     raw.forEach(c=>{
+       let t=Number(c.time);
+       if(!Number.isFinite(t))return;
+       if(t>100000000000)t=Math.floor(t/1000);
+       const o=Number(c.open),h=Number(c.high),l=Number(c.low),cl=Number(c.close);
+       if(![o,h,l,cl].every(Number.isFinite))return;
+       map.set(Math.floor(t),{time:Math.floor(t),open:o,high:h,low:l,close:cl});
+     });
+     const bars=Array.from(map.values()).sort((a,b)=>a.time-b.time);
+     if(!bars.length)throw new Error('Backend response contains no usable market.candles.');
+     candles.setData(bars);
+     chart.timeScale().fitContent();
+     removeLines();
+
+     const setup=setupObject(data);
+     const decision=String(setup.decision||data.status||'NO_TRADE').toUpperCase();
+     const direction=String(setup.direction||setup.side||'').toUpperCase();
+     const isNoTrade=decision==='NO_TRADE'||decision==='WAIT'||decision==='NONE';
+     const entry=firstNumber(setup,['entry','entryPrice','entry_price','plannedEntry']);
+     const sl=firstNumber(setup,['stopLoss','stop_loss','sl']);
+     const tp=firstNumber(setup,['takeProfit','take_profit','tp','tp1','target']);
+     if(!isNoTrade){
+       addLine(entry,'#40c4ff','ENTRY',0);
+       addLine(sl,'#ff1744','STOP LOSS',2);
+       addLine(tp,'#00e676','TAKE PROFIT',2);
+     }
+     const current=firstNumber(market,['currentPrice'])??bars[bars.length-1].close;
+     setText('decision',isNoTrade?'NO TRADE · WAIT FOR CONFIRMATION':(direction||decision)+' SETUP');
+     document.getElementById('decision').className=isNoTrade?'amber':(direction==='SELL'?'red':'green');
+     setText('price','Price '+current.toFixed(String(data.symbol||'XAUUSD').includes('JPY')?3:2));
+     setText('tf','Timeframe: '+(market.timeframe||data.timeframe||'M15'));
+     setText('provider','Provider: '+(market.provider||data.provider||'Backend'));
+     setText('count','Closed candles: '+(market.closedCandleCount||bars.length));
+
+     const lines=[];
+     if(setup.confidenceLabel||setup.confidence)lines.push('Confidence: '+(setup.confidenceLabel||setup.confidence));
+     if(setup.score!=null)lines.push('Score: '+setup.score+(setup.maxScore!=null?'/'+setup.maxScore:''));
+     if(entry!=null)lines.push('Entry: '+entry);
+     if(sl!=null)lines.push('Stop loss: '+sl);
+     if(tp!=null)lines.push('Take profit: '+tp);
+     if(setup.entryStatus)lines.push('Entry status: '+setup.entryStatus);
+     if(setup.candidateZone){const z=setup.candidateZone;lines.push('Candidate zone: '+(z.bottom??'—')+' – '+(z.top??'—')+(z.status?' ('+z.status+')':''));}
+     const analysis=data.analysis||{};
+     if(analysis.trend)lines.push('Trend: '+(typeof analysis.trend==='string'?analysis.trend:JSON.stringify(analysis.trend)));
+     if(analysis.atr!=null)lines.push('ATR: '+(typeof analysis.atr==='object'?JSON.stringify(analysis.atr):analysis.atr));
+     const reasons=Array.isArray(setup.reasons)?setup.reasons:(Array.isArray(setup.evidence)?setup.evidence:[]);
+     if(reasons.length)lines.push('Reasons:\n• '+reasons.map(x=>typeof x==='string'?x:JSON.stringify(x)).join('\n• '));
+     const gaps=[];flattenObjects(analysis,gaps,0);flattenObjects(data.annotations||[],gaps,0);
+     const unique=[];const seen=new Set();
+     gaps.forEach(g=>{const id=String(g.id||g.label||'')+'|'+String(g.time||g.startTime||'')+'|'+String(g.top)+'|'+String(g.bottom);if(!seen.has(id)){seen.add(id);unique.push(g);}});
+     if(unique.length){
+       lines.push('Fair Value Gaps (latest '+Math.min(unique.length,8)+'):');
+       unique.slice(-8).reverse().forEach(g=>lines.push('• '+(g.direction||'')+' FVG '+(g.bottom??'—')+'–'+(g.top??'—')+(g.status?' · '+g.status:'')+(g.time?' · '+g.time:'')));
+     }
+     if(isNoTrade&&!lines.some(x=>x.startsWith('Reasons:')))lines.push('No confirmed trade setup was returned by the backend. No entry, SL or TP is being invented.');
+     setText('detail',lines.length?lines.join('\n'):'Backend data loaded. No additional setup details were supplied.');
+   }catch(e){setText('decision','Could not render backend data');setText('detail',String(e&&e.message||e));}
+ }
+ window.renderSignal=render;
+ init();
+})();
+</script>
+</body></html>
+""".trimIndent()
 
     @SuppressLint("SetJavaScriptEnabled")
     fun showTradingViewChart(symbol: String) {
-        val tvSymbol = toTradingViewSymbol(symbol)
-        if (tvSymbol.isEmpty()) { Toast.makeText(this, "Chart not available for \"$symbol\"", Toast.LENGTH_SHORT).show(); return }
+        val cleanSymbol = symbol.trim().uppercase(Locale.US).ifEmpty { "XAUUSD" }
         chartDialog?.dismiss()
+
         val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar)
-        dialog.window?.apply { setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT); setBackgroundDrawable(ColorDrawable(BG)) }
-
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG); fitsSystemWindows = true }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), dp(12), dp(12), dp(12)); background = roundedBg(Color.parseColor("#181818"), 0f) }
-        val title = makeText("", 16f, Color.WHITE, true)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(BG)
+            fitsSystemWindows = true
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(10), dp(12), dp(10))
+            setBackgroundColor(Color.parseColor("#181818"))
+        }
+        val title = makeText("$cleanSymbol · SKY AI SIGNALS", 15f, Color.WHITE, true)
         title.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        val close = makeText("✕ Close", 13f, Color.WHITE, true)
-        close.setPadding(dp(14), dp(8), dp(14), dp(8)); close.background = roundedBg(Color.parseColor("#262626"), dpf(14f), STROKE); applyBounce(close)
-        header.addView(title); header.addView(close); root.addView(header)
+        val refresh = makeText("↻ Refresh", 12f, GREEN, true).apply {
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = roundedBg(Color.parseColor("#262626"), dpf(12f), STROKE)
+        }
+        val close = makeText("✕", 16f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = roundedBg(Color.parseColor("#262626"), dpf(12f), STROKE)
+        }
+        header.addView(title)
+        header.addView(refresh, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).also { it.marginEnd = dp(8) })
+        header.addView(close)
+        root.addView(header)
 
-        val names = LinkedHashSet<String>()
-        names.add(tvSymbol.substringAfter(":"))
-        priceViews.keys.forEach { if (toTradingViewSymbol(it).isNotEmpty()) names.add(it.uppercase(Locale.US)) }
-        FALLBACK_SYMBOLS.forEach { names.add(it) }
-
-        val chipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), dp(8), dp(12), dp(8)) }
-        val chipScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chipRow) }
+        val symbols = LinkedHashSet<String>()
+        symbols.add(cleanSymbol)
+        priceViews.keys.forEach { symbols.add(it.uppercase(Locale.US)) }
+        FALLBACK_SYMBOLS.forEach { symbols.add(it) }
+        val chipRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+        }
+        val chipScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(chipRow)
+        }
         root.addView(chipScroll)
 
-        val frame = FrameLayout(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f) }
+        val frame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
         val web = WebView(this).apply { setBackgroundColor(BG) }
-        val loader = ProgressBar(this).apply { layoutParams = FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER) }
-        val errorView = makeText("", 14f, AMBER).apply {
-            gravity = Gravity.CENTER; setPadding(dp(24), dp(24), dp(24), dp(24)); visibility = View.GONE
+        val loader = ProgressBar(this).apply {
+            layoutParams = FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER)
+        }
+        val error = makeText("", 13f, AMBER).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(22), dp(20), dp(22), dp(20))
+            visibility = View.GONE
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER)
         }
         frame.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        frame.addView(loader); frame.addView(errorView); root.addView(frame)
+        frame.addView(loader)
+        frame.addView(error)
+        root.addView(frame)
 
-        val note = makeText("Chart feed by TradingView. Not tied to backend prices.", 10f, MUTED).apply { setPadding(dp(16), dp(6), dp(16), dp(8)) }
-        root.addView(note)
-
-        fun showError(msg: String) { loader.visibility = View.GONE; errorView.text = msg; errorView.visibility = View.VISIBLE }
-
-        web.settings.apply { javaScriptEnabled = true; domStorageEnabled = true; allowFileAccess = false; allowContentAccess = false; setSupportMultipleWindows(false); mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW }
-        web.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView?, url: String?) { loader.visibility = View.GONE }
-            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) { if (request?.isForMainFrame == true) showError("Couldn't load the chart.") }
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
+        val footer = makeText("Candles and SMC analysis from your SKY AI backend · Drag to pan · Pinch to zoom", 10f, MUTED).apply {
+            setPadding(dp(12), dp(7), dp(12), dp(8))
         }
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onReceivedTitle(view: WebView?, t: String?) { if (t == "tv_error") showError("The TradingView widget failed to load.") }
+        root.addView(footer)
+
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
+            setSupportMultipleWindows(false)
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        }
+        var chartPageReady = false
+        var queuedChartJson: JSONObject? = null
+        fun injectChartData(json: JSONObject) {
+            if (!chartPageReady) {
+                queuedChartJson = json
+                return
+            }
+            val encoded = JSONObject.quote(json.toString())
+            web.evaluateJavascript("window.renderSignal && window.renderSignal(JSON.parse($encoded));", null)
+        }
+        web.webChromeClient = WebChromeClient()
+        web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                loader.visibility = View.GONE
+                chartPageReady = true
+                queuedChartJson?.let {
+                    queuedChartJson = null
+                    injectChartData(it)
+                }
+            }
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, e: WebResourceError?) {
+                if (request?.isForMainFrame == true) {
+                    loader.visibility = View.GONE
+                    error.text = "Chart page failed to load. Check your internet connection."
+                    error.visibility = View.VISIBLE
+                }
+            }
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
         }
 
         val chips = LinkedHashMap<String, TextView>()
-        fun styleChips(selected: String) {
-            for ((n, v) in chips) { val sel = n == selected; v.setTextColor(if (sel) Color.BLACK else Color.WHITE); v.background = roundedBg(if (sel) GREEN else Color.parseColor("#262626"), dpf(18f), if (sel) GREEN else STROKE) }
+        var selectedSymbol = cleanSymbol
+        fun styleChips() {
+            chips.forEach { (name, chip) ->
+                val selected = name == selectedSymbol
+                chip.setTextColor(if (selected) Color.BLACK else Color.WHITE)
+                chip.background = roundedBg(if (selected) GREEN else Color.parseColor("#262626"), dpf(18f), if (selected) GREEN else STROKE)
+            }
         }
-        fun load(name: String) {
-            val tv = toTradingViewSymbol(name)
-            if (tv.isEmpty()) { showError("Chart not available for \"$name\"."); return }
-            title.text = "$name · TradingView"; styleChips(name); errorView.visibility = View.GONE; loader.visibility = View.VISIBLE
-            web.loadDataWithBaseURL("https://www.tradingview.com/", buildChartHtml(tv), "text/html", "UTF-8", null)
-        }
-        for (n in names) {
-            if (toTradingViewSymbol(n).isEmpty()) continue
-            val chip = makeText(n, 13f, Color.WHITE, true)
-            chip.setPadding(dp(14), dp(7), dp(14), dp(7))
-            chip.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).also { it.marginEnd = dp(8) }
-            applyBounce(chip); chip.setOnClickListener { load(n) }; chips[n] = chip; chipRow.addView(chip)
+        fun loadData() {
+            selectedSymbol = selectedSymbol.uppercase(Locale.US)
+            title.text = "$selectedSymbol · SKY AI SIGNALS"
+            styleChips()
+            loader.visibility = View.VISIBLE
+            error.visibility = View.GONE
+            loadSignalData(selectedSymbol, "M15") { json, message ->
+                if (dialog.isShowing && !isFinishing && !isDestroyed) {
+                    loader.visibility = View.GONE
+                    if (json == null) {
+                        error.text = "Couldn't load backend candles.\n$message"
+                        error.visibility = View.VISIBLE
+                    } else {
+                        injectChartData(json)
+                    }
+                }
+            }
         }
 
+        for (name in symbols) {
+            val chip = makeText(name, 12f, Color.WHITE, true).apply {
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).also { it.marginEnd = dp(7) }
+            }
+            applyBounce(chip)
+            chip.setOnClickListener {
+                selectedSymbol = name
+                loadData()
+            }
+            chips[name] = chip
+            chipRow.addView(chip)
+        }
+
+        refresh.setOnClickListener { loadData() }
         close.setOnClickListener { dialog.dismiss() }
-        dialog.setOnDismissListener { web.stopLoading(); (web.parent as? ViewGroup)?.removeView(web); web.destroy(); if (chartDialog === dialog) chartDialog = null }
-        dialog.setContentView(root); chartDialog = dialog; dialog.show(); load(tvSymbol.substringAfter(":"))
+        dialog.setOnDismissListener {
+            web.stopLoading()
+            (web.parent as? ViewGroup)?.removeView(web)
+            web.destroy()
+            if (chartDialog === dialog) chartDialog = null
+        }
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(BG))
+            setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        chartDialog = dialog
+        dialog.show()
+        dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+        web.loadDataWithBaseURL("https://local.skyai/", buildChartHtml(), "text/html", "UTF-8", null)
+        loadData()
     }
 
     private fun sendChat() {
@@ -676,7 +925,7 @@ catch (e) { document.title = 'tv_error'; }
             val keys = listOf("reply", "response", "text", "message", "answer", "content", "output")
             for (k in keys) { val v = j.optString(k, ""); if (v.isNotBlank() && v != "null") return v }
             body
-        } catch (e: Exception) { body }
+        } catch (_: Exception) { body }
     }
 
     private fun addBubble(text: String, isUser: Boolean): TextView {
