@@ -3,122 +3,265 @@
     android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="#0B0E14"
     android:orientation="vertical">
 
-    <androidx.core.widget.NestedScrollView
+    <!-- HEADER -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/logoMark"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:gravity="center"
+            android:text="M"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvBrand"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SMC SIGNALS"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Smart Money Concepts • AI Powered"
+                android:textColor="#C5CBD8"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/statusPill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="5dp">
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="● CONNECTING"
+                android:textColor="#FFB300"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Not financial advice"
+                android:textColor="#8A93A6"
+                android:textSize="9sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="🔔"
+            android:textSize="20sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="⚙"
+            android:textColor="#B388FF"
+            android:textSize="22sp" />
+    </LinearLayout>
+
+    <!-- MARKET CHIPS -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="12dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="6dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/tickerContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <TextView
+        android:id="@+id/tvUpdated"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:text=""
+        android:textColor="#8A93A6"
+        android:textSize="10sp" />
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <!-- MAIN SCROLL -->
+    <ScrollView
+        android:id="@+id/scrollMain"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:clipToPadding="false"
         android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="12dp">
 
-            <!-- 1. Header -->
+            <!-- CHART CARD -->
             <LinearLayout
+                android:id="@+id/chartCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="vertical"
+                android:padding="12dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvChartTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="XAUUSD"
+                            android:textColor="#FFFFFF"
+                            android:textSize="22sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvChartSub"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Gold / US Dollar · 15m"
+                            android:textColor="#8A93A6"
+                            android:textSize="12sp" />
+                    </LinearLayout>
 
                     <TextView
+                        android:id="@+id/tvChartPrice"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="SKY AI"
-                        android:textColor="#FFFFFF"
-                        android:textSize="24sp"
+                        android:text="—"
+                        android:textColor="#00E676"
+                        android:textSize="20sp"
                         android:textStyle="bold" />
 
                     <TextView
-                        android:id="@+id/tvStatus"
+                        android:id="@+id/btnRefresh"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="● CONNECTING"
-                        android:textColor="#FFB300"
-                        android:textSize="12sp" />
+                        android:layout_marginStart="10dp"
+                        android:padding="6dp"
+                        android:text="↻"
+                        android:textColor="#B388FF"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
 
-                <ProgressBar
-                    android:id="@+id/progressBar"
-                    android:layout_width="22dp"
-                    android:layout_height="22dp"
-                    android:indeterminate="true"
-                    android:visibility="gone" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="horizontal">
-
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/btnCharts"
-                    android:layout_width="0dp"
-                    android:layout_height="46dp"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_btn_secondary"
-                    android:text="📊 View Live Charts"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="13sp" />
-
-                <androidx.appcompat.widget.AppCompatButton
-                    android:id="@+id/btnRefresh"
-                    android:layout_width="0dp"
-                    android:layout_height="46dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_btn_primary"
-                    android:text="Sync"
-                    android:textAllCaps="false"
-                    android:textColor="#000000"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tvUpdated"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Not synced yet"
-                android:textColor="#9E9E9E"
-                android:textSize="12sp" />
-
-            <!-- 2. Live-price ticker -->
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/tickerContainer"
-                    android:layout_width="wrap_content"
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal" />
-            </HorizontalScrollView>
+                    android:layout_marginTop="8dp"
+                    android:scrollbars="none">
 
-            <!-- 3. Summary -->
+                    <LinearLayout
+                        android:id="@+id/tfContainer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <FrameLayout
+                    android:id="@+id/chartFrame"
+                    android:layout_width="match_parent"
+                    android:layout_height="380dp"
+                    android:layout_marginTop="8dp" />
+            </LinearLayout>
+
+            <!-- SIGNALS HEADER -->
             <LinearLayout
+                android:id="@+id/signalsHeader"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:background="@drawable/bg_card"
+                android:layout_marginBottom="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📈 AI TRADING SIGNALS"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvLivePill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:paddingStart="10dp"
+                    android:paddingTop="3dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="3dp"
+                    android:text="Live Analysis"
+                    android:textColor="#00E676"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- STATS -->
+            <LinearLayout
+                android:id="@+id/statsCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
                 android:orientation="vertical"
-                android:padding="14dp">
+                android:padding="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -138,14 +281,14 @@
                             android:layout_height="wrap_content"
                             android:text="0"
                             android:textColor="#FFFFFF"
-                            android:textSize="22sp"
+                            android:textSize="18sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="PENDING"
-                            android:textColor="#9E9E9E"
+                            android:text="Active"
+                            android:textColor="#8A93A6"
                             android:textSize="10sp" />
                     </LinearLayout>
 
@@ -162,14 +305,14 @@
                             android:layout_height="wrap_content"
                             android:text="0"
                             android:textColor="#FFFFFF"
-                            android:textSize="22sp"
+                            android:textSize="18sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="COMPLETED"
-                            android:textColor="#9E9E9E"
+                            android:text="Completed"
+                            android:textColor="#8A93A6"
                             android:textSize="10sp" />
                     </LinearLayout>
 
@@ -186,14 +329,14 @@
                             android:layout_height="wrap_content"
                             android:text="0"
                             android:textColor="#00E676"
-                            android:textSize="22sp"
+                            android:textSize="18sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="WINS"
-                            android:textColor="#9E9E9E"
+                            android:text="Wins"
+                            android:textColor="#8A93A6"
                             android:textSize="10sp" />
                     </LinearLayout>
 
@@ -209,15 +352,15 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textColor="#FF1744"
-                            android:textSize="22sp"
+                            android:textColor="#FF3B5C"
+                            android:textSize="18sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="LOSSES"
-                            android:textColor="#9E9E9E"
+                            android:text="Losses"
+                            android:textColor="#8A93A6"
                             android:textSize="10sp" />
                     </LinearLayout>
                 </LinearLayout>
@@ -226,23 +369,12 @@
                     android:id="@+id/tvWinRate"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="8dp"
                     android:gravity="center"
                     android:text="Win rate: —"
-                    android:textColor="#9E9E9E"
-                    android:textSize="12sp" />
+                    android:textColor="#8A93A6"
+                    android:textSize="11sp" />
             </LinearLayout>
-
-            <!-- 4. Pending -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="10dp"
-                android:text="PENDING SIGNALS"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold" />
 
             <LinearLayout
                 android:id="@+id/pendingContainer"
@@ -250,15 +382,15 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
-            <!-- 5. Completed -->
             <TextView
+                android:id="@+id/historyHeader"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="10dp"
-                android:text="COMPLETED TRADES"
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="8dp"
+                android:text="🕘 SIGNAL HISTORY"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <LinearLayout
@@ -267,91 +399,91 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
-            <!-- 6. News + session -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="10dp"
-                android:text="NEWS &amp; SESSIONS"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
+                android:layout_marginTop="14dp"
+                android:text="MARKET SESSIONS"
+                android:textColor="#8A93A6"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/tvSession"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_card"
-                android:orientation="vertical"
-                android:padding="14dp">
+                android:layout_marginTop="4dp"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/tvSession"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="#FFB300"
-                    android:textSize="13sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="NEWS"
+                android:textColor="#8A93A6"
+                android:textSize="11sp"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvNewsStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textColor="#9E9E9E"
-                    android:textSize="12sp" />
+            <TextView
+                android:id="@+id/tvNewsStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#C5CBD8"
+                android:textSize="12sp" />
 
-                <LinearLayout
-                    android:id="@+id/newsContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/newsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
             <View
                 android:layout_width="match_parent"
                 android:layout_height="16dp" />
         </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
+    </ScrollView>
 
-    <!-- Chat reply panel (opens above the bar) -->
+    <!-- CHAT PANEL -->
     <LinearLayout
         android:id="@+id/chatPanel"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:background="@drawable/bg_card"
+        android:layout_height="300dp"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="10dp"
         android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Sky AI"
+                android:text="Sky AI Chat"
                 android:textColor="#FFFFFF"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/tvCloseChat"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:padding="4dp"
-                android:text="✕ Close"
-                android:textColor="#9E9E9E" />
+                android:padding="6dp"
+                android:text="✕"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
         </LinearLayout>
 
         <ScrollView
             android:id="@+id/chatScroll"
             android:layout_width="match_parent"
-            android:layout_height="220dp"
-            android:layout_marginTop="8dp">
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
             <LinearLayout
                 android:id="@+id/chatContainer"
@@ -359,46 +491,96 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
         </ScrollView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Ask Sky AI…"
+                android:imeOptions="actionSend"
+                android:inputType="text"
+                android:maxLines="3"
+                android:padding="10dp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#8A93A6"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnSend"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:text="Send"
+                android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Fixed bottom chat bar -->
+    <!-- BOTTOM NAV -->
     <LinearLayout
-        android:id="@+id/chatBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="12dp"
-        android:background="@drawable/bg_input"
-        android:gravity="center_vertical"
+        android:background="#0F1320"
         android:orientation="horizontal"
-        android:paddingStart="18dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="6dp"
-        android:paddingBottom="6dp">
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
 
-        <EditText
-            android:id="@+id/etInput"
+        <TextView
+            android:id="@+id/navHome"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@null"
-            android:hint="Ask Sky AI..."
-            android:imeOptions="actionSend"
-            android:inputType="textCapSentences"
-            android:maxLines="3"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#757575"
-            android:textSize="14sp" />
+            android:gravity="center"
+            android:text="🏠\nHome"
+            android:textColor="#B388FF"
+            android:textSize="11sp" />
 
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/btnSend"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="@drawable/bg_send_circle"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            android:padding="0dp"
-            android:text="➤"
-            android:textColor="#000000"
-            android:textSize="16sp" />
+        <TextView
+            android:id="@+id/navSignals"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="📊\nSignals"
+            android:textColor="#8A93A6"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/navNew"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="➕\nNew Analysis"
+            android:textColor="#8A93A6"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/navHistory"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="🕘\nHistory"
+            android:textColor="#8A93A6"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/navProfile"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="👤\nProfile"
+            android:textColor="#8A93A6"
+            android:textSize="11sp" />
     </LinearLayout>
 </LinearLayout>
