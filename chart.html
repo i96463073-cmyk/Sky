@@ -1,716 +1,302 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SKY AI SIGNALS</title>
-
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #090812;
-      --panel: #131120;
-      --border: #29243e;
-      --purple: #9b7bff;
-      --green: #00d9a0;
-      --red: #ff5277;
-      --text: #f4f0ff;
-      --muted: #a7a0bd;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: system-ui, Arial, sans-serif;
-    }
-
-    header {
-      padding: 18px;
-      border-bottom: 1px solid var(--border);
-      background: #100d1d;
-    }
-
-    .brand {
-      font-size: 23px;
-      font-weight: 900;
-      letter-spacing: 1px;
-    }
-
-    .brand span { color: var(--purple); }
-
-    .subtitle {
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: 5px;
-    }
-
-    main {
-      width: 100%;
-      max-width: 1450px;
-      margin: auto;
-      padding: 14px;
-    }
-
-    .controls {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 9px;
-      margin-bottom: 12px;
-    }
-
-    select, button {
-      width: 100%;
-      min-width: 0;
-      padding: 12px 8px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      color: var(--text);
-      font-size: 13px;
-    }
-
-    button {
-      background: var(--purple);
-      color: #100b20;
-      font-weight: 800;
-      border: none;
-      cursor: pointer;
-    }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      margin-bottom: 12px;
-      overflow: hidden;
-    }
-
-    .card-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 14px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .card-head h2 {
-      margin: 0;
-      font-size: 14px;
-    }
-
-    #price {
-      font-weight: 800;
-      font-size: 15px;
-    }
-
-    #chart {
-      height: 430px;
-      width: 100%;
-      position: relative;
-    }
-
-    .status {
-      color: var(--muted);
-      font-size: 12px;
-      padding: 10px 14px;
-      overflow-wrap: anywhere;
-    }
-
-    .signal-box { padding: 16px; }
-
-    .signal-title {
-      font-size: 23px;
-      font-weight: 900;
-      margin-bottom: 6px;
-    }
-
-    .buy { color: var(--green); }
-    .sell { color: var(--red); }
-    .neutral { color: var(--purple); }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 9px;
-      margin-top: 14px;
-    }
-
-    .metric {
-      padding: 12px;
-      border: 1px solid var(--border);
-      background: #0e0c18;
-      border-radius: 10px;
-      min-width: 0;
-    }
-
-    .metric small {
-      display: block;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-
-    .metric strong {
-      font-size: 14px;
-      overflow-wrap: anywhere;
-    }
-
-    .section { padding: 14px; }
-
-    .section h3 {
-      margin: 0 0 10px;
-      font-size: 14px;
-    }
-
-    .item {
-      border-left: 3px solid var(--purple);
-      padding: 10px;
-      margin: 8px 0;
-      background: #0e0c18;
-      border-radius: 5px;
-      font-size: 12px;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }
-
-    .item.good { border-left-color: var(--green); }
-    .item.bad { border-left-color: var(--red); }
-
-    .muted { color: var(--muted); }
-
-    footer {
-      padding: 18px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 11px;
-    }
-
-    @media (max-width: 600px) {
-      main { padding: 9px; }
-      header { padding: 14px; }
-      #chart { height: 360px; }
-      .controls { gap: 6px; }
-      select, button { font-size: 12px; padding: 11px 5px; }
-      .signal-title { font-size: 20px; }
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#121212;color:#eee;font-family:Arial,sans-serif}
+body{display:flex;flex-direction:column}
+#wrap{position:relative;flex:1;min-height:220px}
+#chart{position:absolute;inset:0}
+#ov{position:absolute;inset:0;pointer-events:none;z-index:2}
+#legend{position:absolute;top:6px;left:8px;z-index:3;font-size:11px;color:#bbb;pointer-events:none}
+#tg{position:absolute;top:24px;left:8px;z-index:3;display:flex;gap:5px;flex-wrap:wrap;max-width:75%}
+.tg{font-size:10px;padding:3px 8px;border-radius:10px;border:1px solid #3a3a3a;background:#1c1c1ccc;color:#aaa}
+.tg.on{color:#00e676;border-color:#00e676}
+#panel{max-height:36%;overflow:auto;background:#171717;border-top:1px solid #303030;padding:10px 12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
+.tag{padding:4px 8px;border:1px solid #383838;border-radius:12px;font-size:11px;color:#ddd}
+#decision{font-weight:bold;font-size:14px;padding:5px 10px;border-radius:14px;border:1px solid}
+#price{margin-left:auto;font-weight:bold;font-size:18px}
+#detail{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap}
+.green{color:#00e676;border-color:#00e676}.red{color:#ff1744;border-color:#ff1744}.amber{color:#ffb300;border-color:#ffb300}
+</style>
+<!-- Pinned version. For zero start-up delay, copy this file into app/src/main/assets and inline it instead. -->
+<script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
-
 <body>
-  <header>
-    <div class="brand">SKY AI <span>SIGNALS</span></div>
-    <div class="subtitle">SMC / ICT MARKET ANALYSIS TERMINAL</div>
-  </header>
-
-  <main>
-    <div class="controls">
-      <select id="symbol">
-        <option value="XAUUSD">XAUUSD — Gold</option>
-        <option value="EURUSD">EURUSD</option>
-        <option value="GBPUSD">GBPUSD</option>
-        <option value="USDJPY">USDJPY</option>
-        <option value="AUDUSD">AUDUSD</option>
-        <option value="USDCAD">USDCAD</option>
-        <option value="USDCHF">USDCHF</option>
-        <option value="NZDUSD">NZDUSD</option>
-      </select>
-
-      <select id="timeframe">
-        <option>M5</option>
-        <option selected>M15</option>
-        <option>M30</option>
-        <option>H1</option>
-        <option>H4</option>
-        <option>D1</option>
-      </select>
-
-      <button id="refresh">ANALYZE</button>
-    </div>
-
-    <section class="card">
-      <div class="card-head">
-        <h2 id="chartTitle">XAUUSD · M15</h2>
-        <div id="price">—</div>
-      </div>
-      <div id="chart"></div>
-      <div class="status" id="chartStatus">Waiting for market data…</div>
-    </section>
-
-    <section class="card">
-      <div class="signal-box">
-        <div class="muted">AI SETUP ASSESSMENT</div>
-        <div id="decision" class="signal-title neutral">WAITING</div>
-        <div id="summary" class="muted">Connect the signal Worker to begin.</div>
-
-        <div class="grid">
-          <div class="metric">
-            <small>Setup score</small>
-            <strong id="score">—</strong>
-          </div>
-          <div class="metric">
-            <small>Confidence label</small>
-            <strong id="confidence">—</strong>
-          </div>
-          <div class="metric">
-            <small>Entry</small>
-            <strong id="entry">—</strong>
-          </div>
-          <div class="metric">
-            <small>Stop loss</small>
-            <strong id="sl">—</strong>
-          </div>
-          <div class="metric">
-            <small>Take profit</small>
-            <strong id="tp">—</strong>
-          </div>
-          <div class="metric">
-            <small>Entry status</small>
-            <strong id="entryStatus">—</strong>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section">
-        <h3>SMC / ICT Evidence</h3>
-        <div id="evidence">
-          <div class="item">No analysis loaded yet.</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section">
-        <h3>Market Data Quality</h3>
-        <div id="quality" class="muted">Waiting for data…</div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section">
-        <h3>Chart Legend</h3>
-        <div class="item good">Green horizontal line: planned entry</div>
-        <div class="item bad">Red horizontal line: planned stop loss</div>
-        <div class="item">Purple horizontal line: planned take profit</div>
-        <div class="item">Candles and evidence are based on the Worker response.</div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    SKY AI SIGNALS · Analysis is not a guarantee of market direction or profit.
-  </footer>
-
+<div id="wrap">
+  <div id="chart"></div>
+  <canvas id="ov"></canvas>
+  <div id="legend"></div>
+  <div id="tg"></div>
+</div>
+<div id="panel">
+  <div class="row"><span id="decision" class="amber">Loading…</span><span id="price"></span></div>
+  <div class="row"><span class="tag" id="tf"></span><span class="tag" id="provider"></span><span class="tag" id="count"></span></div>
+  <div id="detail"></div>
+</div>
 <script>
-"use strict";
+(function(){
+const TF_SEC={M1:60,M5:300,M15:900,M30:1800,H1:3600,H4:14400,D1:86400};
+const S={key:'',sym:'',tf:'M15',bars:[],forming:null,zones:[],events:[],setup:null,lines:[],
+         show:{filled:false,ob:true,fvg:true,struct:true,pd:true,lvl:true}};
+const wrap=document.getElementById('wrap'),el=document.getElementById('chart'),cv=document.getElementById('ov'),ctx=cv.getContext('2d');
+let chart=null,series=null,raf=0;
 
-/* ======================================================
-   IMPORTANT: REPLACE THIS WITH YOUR SIGNAL WORKER URL.
-   Example format: https://your-signal-worker.workers.dev
-   Do not put /test-signal at the end here.
-   ====================================================== */
-const WORKER_URL = "https://YOUR-SIGNAL-WORKER.workers.dev";
-
-/* The dashboard appends /test-signal and its parameters. */
-
-const $ = id => document.getElementById(id);
-
-let chart;
-let candleSeries;
-let resizeObserver;
-let activeLines = [];
-let requestController = null;
-
-function showStatus(message) {
-  $("chartStatus").textContent = message;
+const $=id=>document.getElementById(id);
+const setText=(id,v)=>{$(id).textContent=v==null?'':String(v);};
+const num=v=>{if(v==null||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;};
+function toSec(v){
+  if(v==null)return null;
+  if(typeof v==='string'&&isNaN(Number(v))){const d=Date.parse(v);return isNaN(d)?null:Math.floor(d/1000);}
+  let n=Number(v);if(!Number.isFinite(n))return null;if(n>1e11)n/=1000;return Math.floor(n);
 }
+const dec=s=>String(s).includes('JPY')?3:(String(s).includes('XAU')?2:5);
+const fmt=(p)=>p==null?'—':Number(p).toFixed(dec(S.sym));
 
-function fmt(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  return n.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 5
+/* ---------- chart setup ---------- */
+function init(){
+  if(!window.LightweightCharts){setText('decision','Chart library failed to load');return;}
+  chart=LightweightCharts.createChart(el,{
+    width:el.clientWidth,height:el.clientHeight,
+    layout:{background:{type:'solid',color:'#121212'},textColor:'#c8c8c8',fontSize:11},
+    grid:{vertLines:{color:'#1f1f1f'},horzLines:{color:'#1f1f1f'}},
+    rightPriceScale:{borderColor:'#383838',autoScale:true,scaleMargins:{top:.08,bottom:.08}},
+    timeScale:{borderColor:'#383838',timeVisible:true,secondsVisible:false,rightOffset:8},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+    handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
+    handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
+  });
+  series=chart.addSeries(LightweightCharts.CandlestickSeries,{
+    upColor:'#26a69a',downColor:'#ef5350',borderUpColor:'#26a69a',borderDownColor:'#ef5350',
+    wickUpColor:'#26a69a',wickDownColor:'#ef5350',priceLineColor:'#26a69a'
+  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(sched);
+  chart.subscribeCrosshairMove(sched);
+  ['pointermove','touchmove','wheel'].forEach(e=>el.addEventListener(e,sched,{passive:true}));
+  const resize=()=>{chart.applyOptions({width:el.clientWidth,height:el.clientHeight});sizeCanvas();sched();};
+  if(window.ResizeObserver)new ResizeObserver(resize).observe(el);else window.addEventListener('resize',resize);
+  sizeCanvas();buildToggles();
+}
+function sizeCanvas(){
+  const d=window.devicePixelRatio||1;
+  cv.width=wrap.clientWidth*d;cv.height=wrap.clientHeight*d;
+  cv.style.width=wrap.clientWidth+'px';cv.style.height=wrap.clientHeight+'px';
+  ctx.setTransform(d,0,0,d,0,0);
+}
+function buildToggles(){
+  const defs=[['ob','OB'],['fvg','FVG'],['filled','Filled'],['struct','Structure'],['pd','P/D'],['lvl','Levels']];
+  const box=$('tg');
+  defs.forEach(([k,label])=>{
+    const b=document.createElement('span');b.className='tg'+(S.show[k]?' on':'');b.textContent=label;
+    b.onclick=()=>{S.show[k]=!S.show[k];b.classList.toggle('on',S.show[k]);if(k==='lvl')applyLevels();sched();};
+    box.appendChild(b);
   });
 }
 
-function safeText(value) {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "object") {
-    try { return JSON.stringify(value); }
-    catch { return "[object]"; }
+/* ---------- data extraction (defensive: field names may vary) ---------- */
+function extract(root,out,depth){
+  if(root==null||depth>8)return;
+  if(Array.isArray(root)){root.forEach(v=>extract(v,out,depth+1));return;}
+  if(typeof root!=='object')return;
+  const type=String(root.type||root.kind||root.label||root.name||'');
+  const top=num(root.top!=null?root.top:root.high),bot=num(root.bottom!=null?root.bottom:root.low);
+  if(top!=null&&bot!=null&&/fvg|fair value|order.?block|\bob\b/i.test(type)){
+    const kind=/fvg|fair/i.test(type)?'FVG':'OB';
+    const ds=String(root.direction||root.bias||root.side||type).toLowerCase();
+    const dir=/bull|buy|long|\bup\b/.test(ds)?'bull':(/bear|sell|short|down/.test(ds)?'bear':'neutral');
+    const st=String(root.status||'');
+    out.zones.push({kind,dir,top:Math.max(top,bot),bottom:Math.min(top,bot),
+      start:toSec(root.time!=null?root.time:(root.startTime!=null?root.startTime:(root.start!=null?root.start:root.from))),
+      end:toSec(root.endTime!=null?root.endTime:(root.end!=null?root.end:(root.to!=null?root.to:root.mitigatedAt))),
+      filled:!!(root.filled||root.mitigated||/fill|mitig/i.test(st))});
+  }else{
+    const p=num(root.price!=null?root.price:root.level);
+    if(p!=null&&/bos|choch|mss|idm|sweep|liquidity|equal/i.test(type)){
+      out.events.push({label:(type.match(/bos|choch|mss|idm|sweep|liquidity|equal\w*/i)||[type])[0].toUpperCase(),
+        price:p,start:toSec(root.time!=null?root.time:(root.startTime!=null?root.startTime:root.from)),
+        end:toSec(root.endTime!=null?root.endTime:(root.breakTime!=null?root.breakTime:root.to))});
+    }
   }
-  return String(value);
+  for(const k of Object.keys(root)){if(k==='candles')continue;const v=root[k];if(v&&typeof v==='object')extract(v,out,depth+1);}
 }
+function dedupe(arr,keyFn){const s=new Set();return arr.filter(x=>{const k=keyFn(x);if(s.has(k))return false;s.add(k);return true;});}
 
-function initChart() {
-  const host = $("chart");
+/* ---------- rendering ---------- */
+function snap(t){
+  const b=S.bars;if(!b.length||t==null)return null;
+  let lo=0,hi=b.length-1;
+  if(t<=b[0].time)return b[0].time;
+  if(t>=b[hi].time)return null; // in the future / right of last bar
+  while(lo<hi){const mid=(lo+hi+1)>>1;if(b[mid].time<=t)lo=mid;else hi=mid-1;}
+  return b[lo].time;
+}
+function sched(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;draw();});}
+function draw(){
+  if(!chart||!series)return;
+  const w=wrap.clientWidth,h=wrap.clientHeight;ctx.clearRect(0,0,w,h);
+  if(!S.bars.length)return;
+  const ts=chart.timeScale();
+  const pw=chart.priceScale('right').width();const R=w-pw;
+  const X=(t,def)=>{if(t==null)return def;const s=snap(t);if(s==null)return t>S.bars[S.bars.length-1].time?R:def;const c=ts.timeToCoordinate(s);return c==null?def:c;};
+  const Y=p=>series.priceToCoordinate(p);
+  const bs=ts.options().barSpacing||6;
+  const clampX=x=>Math.max(0,Math.min(R,x));
+  function box(x1,x2,p1,p2,fill,stroke,label,dash){
+    const ya=Y(Math.max(p1,p2)),yb=Y(Math.min(p1,p2));if(ya==null||yb==null)return;
+    x1=clampX(x1);x2=clampX(x2);if(x2-x1<2)return;
+    ctx.fillStyle=fill;ctx.fillRect(x1,ya,x2-x1,Math.max(1,yb-ya));
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.setLineDash(dash||[]);ctx.strokeRect(x1+.5,ya+.5,x2-x1,Math.max(1,yb-ya));ctx.setLineDash([]);}
+    if(label){ctx.fillStyle=stroke||'#ddd';ctx.font='10px Arial';ctx.fillText(label,x1+4,ya+11);}
+  }
+  function hline(x1,x2,p,color,label,dash){
+    const y=Y(p);if(y==null)return;x1=clampX(x1);x2=clampX(x2);if(x2-x1<2)return;
+    ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash(dash||[4,3]);
+    ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();ctx.setLineDash([]);
+    if(label){ctx.fillStyle=color;ctx.font='bold 10px Arial';ctx.fillText(label,(x1+x2)/2-10,y-3);}
+  }
 
-  chart = LightweightCharts.createChart(host, {
-    width: host.clientWidth,
-    height: host.clientHeight,
-    layout: {
-      background: { color: "#131120" },
-      textColor: "#c8c0e0"
-    },
-    grid: {
-      vertLines: { color: "#252039" },
-      horzLines: { color: "#252039" }
-    },
-    rightPriceScale: {
-      borderColor: "#39314f",
-      autoScale: true
-    },
-    timeScale: {
-      borderColor: "#39314f",
-      timeVisible: true,
-      secondsVisible: false,
-      rightOffset: 5
-    },
-    crosshair: {
-      mode: LightweightCharts.CrosshairMode.Normal
-    },
-    handleScroll: true,
-    handleScale: true
+  // premium / discount over the last 60 candles
+  if(S.show.pd&&S.bars.length>20){
+    const n=Math.min(60,S.bars.length),sl=S.bars.slice(-n);
+    let hi=-Infinity,lo=Infinity;sl.forEach(b=>{hi=Math.max(hi,b.high);lo=Math.min(lo,b.low);});
+    const eq=(hi+lo)/2,x1=X(sl[0].time,0);
+    box(x1,R,eq,hi,'rgba(239,83,80,.05)',null);
+    box(x1,R,lo,eq,'rgba(38,166,154,.05)',null);
+    hline(x1,R,eq,'rgba(255,255,255,.35)','EQ 0.5',[2,4]);
+    ctx.fillStyle='rgba(239,83,80,.7)';ctx.font='9px Arial';const yh=Y(hi);if(yh!=null)ctx.fillText('PREMIUM',x1+4,yh+22);
+    ctx.fillStyle='rgba(38,166,154,.8)';const yl=Y(lo);if(yl!=null)ctx.fillText('DISCOUNT',x1+4,yl-6);
+  }
+
+  // order blocks + FVG
+  S.zones.forEach(z=>{
+    if(z.filled&&!S.show.filled)return;
+    if(z.kind==='FVG'&&!S.show.fvg)return;
+    if(z.kind==='OB'&&!S.show.ob)return;
+    const a=z.filled?.07:.2,al=z.filled?.35:.8;
+    const col=z.dir==='bull'?'38,166,154':(z.dir==='bear'?'239,83,80':'255,179,0');
+    const arrow=z.dir==='bull'?' ▲':(z.dir==='bear'?' ▼':'');
+    box(X(z.start,0),z.end?X(z.end,R):R,z.top,z.bottom,'rgba('+col+','+a+')','rgba('+col+','+al+')',z.kind+arrow,z.filled?[3,3]:null);
   });
 
-  candleSeries = chart.addSeries(
-    LightweightCharts.CandlestickSeries,
-    {
-      upColor: "#00d9a0",
-      downColor: "#ff5277",
-      borderUpColor: "#00d9a0",
-      borderDownColor: "#ff5277",
-      wickUpColor: "#00d9a0",
-      wickDownColor: "#ff5277"
-    }
-  );
-
-  resizeObserver = new ResizeObserver(entries => {
-    for (const entry of entries) {
-      chart.applyOptions({
-        width: Math.floor(entry.contentRect.width),
-        height: Math.floor(entry.contentRect.height)
-      });
-    }
+  // structure: BOS / CHoCH / MSS / IDM / sweeps
+  if(S.show.struct)S.events.forEach(e=>{
+    const x1=X(e.start,0),x2=e.end?X(e.end,R):x1+14*bs;
+    const c=/CHOCH|MSS/.test(e.label)?'#ffb300':(/SWEEP|LIQ|EQUAL/.test(e.label)?'#40c4ff':'#d0d0d0');
+    hline(x1,x2,e.price,c,e.label,/SWEEP|LIQ|EQUAL/.test(e.label)?[2,3]:[5,3]);
   });
 
-  resizeObserver.observe(host);
-}
-
-function normalizeCandles(input) {
-  if (!Array.isArray(input)) return [];
-
-  const result = input.map(c => {
-    let time = c.time;
-
-    if (typeof time === "string" && !/^\d+$/.test(time)) {
-      time = Math.floor(Date.parse(time) / 1000);
-    } else {
-      time = Number(time);
-      if (time > 1e12) time = Math.floor(time / 1000);
-    }
-
-    return {
-      time,
-      open: Number(c.open),
-      high: Number(c.high),
-      low: Number(c.low),
-      close: Number(c.close)
-    };
-  }).filter(c =>
-    Number.isFinite(c.time) &&
-    c.time > 0 &&
-    Number.isFinite(c.open) &&
-    Number.isFinite(c.high) &&
-    Number.isFinite(c.low) &&
-    Number.isFinite(c.close) &&
-    c.high >= Math.max(c.open, c.close, c.low) &&
-    c.low <= Math.min(c.open, c.close, c.high)
-  );
-
-  result.sort((a, b) => a.time - b.time);
-
-  // Lightweight Charts requires unique, ascending timestamps.
-  const unique = [];
-  for (const candle of result) {
-    if (unique.length && unique[unique.length - 1].time === candle.time) {
-      unique[unique.length - 1] = candle;
-    } else {
-      unique.push(candle);
-    }
-  }
-
-  return unique;
-}
-
-function removeOldLines() {
-  for (const line of activeLines) {
-    try { candleSeries.removePriceLine(line); } catch {}
-  }
-  activeLines = [];
-}
-
-function addLevel(name, value, color, style) {
-  const price = Number(value);
-  if (!Number.isFinite(price) || price <= 0) return;
-
-  const line = candleSeries.createPriceLine({
-    price,
-    color,
-    lineWidth: 2,
-    lineStyle: style,
-    axisLabelVisible: true,
-    title: name
-  });
-
-  activeLines.push(line);
-}
-
-function renderLevels(levels) {
-  removeOldLines();
-  if (!levels || typeof levels !== "object") return;
-
-  addLevel("ENTRY", levels.entry, "#00d9a0", 0);
-  addLevel("SL", levels.stopLoss ?? levels.sl, "#ff5277", 2);
-  addLevel("TP", levels.takeProfit ?? levels.tp, "#9b7bff", 2);
-}
-
-function renderSignal(signal) {
-  signal = signal || {};
-
-  const decision = String(signal.decision || "NO_TRADE").toUpperCase();
-  const direction = String(signal.direction || "").toUpperCase();
-
-  const title = decision === "BUY_SETUP" ? "BUY SETUP" :
-                decision === "SELL_SETUP" ? "SELL SETUP" :
-                decision === "NO_TRADE" ? "NO TRADE" : decision;
-
-  $("decision").textContent = title;
-  $("decision").className = "signal-title " +
-    (direction === "BUY" ? "buy" :
-     direction === "SELL" ? "sell" : "neutral");
-
-  $("summary").textContent = signal.entryStatus
-    ? "Entry status: " + safeText(signal.entryStatus)
-    : "Setup decision from the current SMC analysis.";
-
-  $("score").textContent =
-    signal.score == null ? "—" :
-    `${signal.score} / ${signal.maxScore ?? "—"}`;
-
-  $("confidence").textContent = safeText(signal.confidenceLabel);
-  $("entry").textContent = fmt(signal.levels?.entry);
-  $("sl").textContent = fmt(signal.levels?.stopLoss ?? signal.levels?.sl);
-  $("tp").textContent = fmt(signal.levels?.takeProfit ?? signal.levels?.tp);
-  $("entryStatus").textContent = safeText(signal.entryStatus);
-
-  renderLevels(signal.levels);
-}
-
-function addEvidenceItem(container, title, value, className = "") {
-  const div = document.createElement("div");
-  div.className = "item " + className;
-
-  const strong = document.createElement("strong");
-  strong.textContent = title + ": ";
-
-  const span = document.createElement("span");
-  span.textContent = safeText(value);
-
-  div.append(strong, span);
-  container.appendChild(div);
-}
-
-function renderEvidence(data) {
-  const box = $("evidence");
-  box.replaceChildren();
-
-  const signal = data.signal || data.setup || {};
-  const analysis = data.analysis || {};
-
-  const reasons = Array.isArray(signal.reasons) ? signal.reasons : [];
-  const evidence = Array.isArray(signal.evidence) ? signal.evidence : [];
-
-  if (!reasons.length && !evidence.length) {
-    addEvidenceItem(
-      box,
-      "Setup evidence",
-      "The engine returned no explicit reason/evidence entries. Check the analysis below."
-    );
-  }
-
-  reasons.forEach((item, i) =>
-    addEvidenceItem(box, `Reason ${i + 1}`, item, "good")
-  );
-
-  evidence.forEach((item, i) =>
-    addEvidenceItem(box, `Evidence ${i + 1}`, item, "good")
-  );
-
-  addEvidenceItem(box, "Market structure trend", analysis.trend ?? "Unavailable");
-  addEvidenceItem(box, "Latest closed candle", analysis.lastClosedCandle ?? data.market?.latestClosedCandle ?? "Unavailable");
-
-  const events = Array.isArray(analysis.structureEvents)
-    ? analysis.structureEvents : [];
-
-  events.slice(-8).reverse().forEach((event, i) =>
-    addEvidenceItem(box, `Structure event ${i + 1}`, event)
-  );
-
-  const sweeps = Array.isArray(analysis.sweeps) ? analysis.sweeps : [];
-  sweeps.slice(-5).reverse().forEach((sweep, i) =>
-    addEvidenceItem(box, `Liquidity sweep ${i + 1}`, sweep, "good")
-  );
-
-  const obs = Array.isArray(analysis.orderBlocks) ? analysis.orderBlocks : [];
-  obs.slice(-5).reverse().forEach((ob, i) =>
-    addEvidenceItem(box, `Order block ${i + 1}`, ob)
-  );
-
-  const fvgs = Array.isArray(analysis.fvg) ? analysis.fvg : [];
-  fvgs.slice(-5).reverse().forEach((fvg, i) =>
-    addEvidenceItem(box, `Fair value gap ${i + 1}`, fvg)
-  );
-
-  const pools = Array.isArray(analysis.liquidityPools)
-    ? analysis.liquidityPools : [];
-
-  pools.slice(-5).reverse().forEach((pool, i) =>
-    addEvidenceItem(box, `Liquidity pool ${i + 1}`, pool)
-  );
-
-  if (analysis.atr) addEvidenceItem(box, "ATR", analysis.atr);
-
-  if (analysis.dealingRange) {
-    addEvidenceItem(box, "Dealing range", analysis.dealingRange);
+  // trade box: entry→TP (green) and entry→SL (red)
+  const s=S.setup;
+  if(s&&S.show.lvl&&s.entry!=null&&s.sl!=null&&s.tp!=null){
+    const last=S.bars[S.bars.length-1];
+    const x1=s.time!=null?X(s.time,R-30*bs):X(S.bars[Math.max(0,S.bars.length-12)].time,0);
+    const x2=Math.min(R,x1+45*bs);
+    box(x1,x2,s.entry,s.tp,'rgba(38,166,154,.18)','rgba(38,166,154,.7)','TP');
+    box(x1,x2,s.entry,s.sl,'rgba(239,83,80,.18)','rgba(239,83,80,.7)','SL');
+    const rr=Math.abs(s.tp-s.entry)/Math.max(1e-12,Math.abs(s.entry-s.sl));
+    const ye=Y(s.entry);if(ye!=null){ctx.fillStyle='#fff';ctx.font='bold 10px Arial';ctx.fillText('ENTRY · R:R 1:'+rr.toFixed(2),x1+4,ye-4);}
   }
 }
 
-function renderQuality(market = {}) {
-  const quality = market.quality || {};
-  const freshness = market.freshness || {};
-
-  const lines = [
-    `Provider: ${safeText(market.provider)}`,
-    `Candles received: ${safeText(quality.received ?? market.candleCount)}`,
-    `Candles accepted: ${safeText(quality.accepted ?? market.closedCandleCount)}`,
-    `Rejected candles: ${safeText(quality.rejectedCount ?? 0)}`,
-    `Unexpected gaps: ${safeText(quality.unexpectedGaps?.length ?? 0)}`,
-    `Freshness: ${safeText(freshness.status ?? "Not reported")}`,
-    `Cached data: ${safeText(market.cached)}`,
-    `Fetched at: ${safeText(market.fetchedAt)}`
-  ];
-
-  if (Array.isArray(quality.warnings)) {
-    quality.warnings.forEach(w => lines.push("Warning: " + safeText(w)));
-  }
-
-  $("quality").textContent = lines.join(" · ");
+function applyLevels(){
+  S.lines.forEach(l=>{try{series.removePriceLine(l);}catch(e){}});S.lines=[];
+  const s=S.setup;if(!s||!S.show.lvl)return;
+  const add=(p,c,t)=>{if(p!=null)S.lines.push(series.createPriceLine({price:p,color:c,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:t}));};
+  add(s.entry,'#40c4ff','ENTRY');add(s.sl,'#ff1744','SL');add(s.tp,'#00e676','TP');
+}
+function legend(){
+  const b=S.bars[S.bars.length-1];if(!b)return;
+  $('legend').textContent=S.sym+' · '+S.tf+'   O '+fmt(b.open)+'  H '+fmt(b.high)+'  L '+fmt(b.low)+'  C '+fmt(b.close);
+  setText('price',fmt(b.close));
 }
 
-async function loadSignal() {
-  const symbol = $("symbol").value;
-  const timeframe = $("timeframe").value;
-
-  if (!WORKER_URL.startsWith("https://") ||
-      WORKER_URL.includes("YOUR-SIGNAL-WORKER")) {
-    showStatus("Set WORKER_URL in chart.html to your deployed signal Worker URL.");
-    return;
+/* ---------- live tick (called by the app every ~2s) ---------- */
+window.tick=function(p){
+  p=Number(p);if(!Number.isFinite(p)||!series||!S.bars.length)return;
+  const tfs=TF_SEC[S.tf]||900,now=Math.floor(Date.now()/1000),slot=now-now%tfs;
+  let last=S.bars[S.bars.length-1];
+  if(slot>last.time&&slot-last.time<=2*tfs){ // start the forming candle (backend sends closed candles only)
+    last={time:slot,open:last.close,high:p,low:p,close:p};S.bars.push(last);S.forming=last;
+  }else{
+    last.close=p;last.high=Math.max(last.high,p);last.low=Math.min(last.low,p);
   }
+  series.update(last);legend();sched();
+};
 
-  if (requestController) requestController.abort();
-  requestController = new AbortController();
-
-  $("chartTitle").textContent = `${symbol} · ${timeframe}`;
-  showStatus("Fetching market data and running SMC analysis…");
-
-  $("decision").textContent = "ANALYZING…";
-  $("decision").className = "signal-title neutral";
-
-  const url = new URL(WORKER_URL.replace(/\/+$/, "") + "/test-signal");
-  url.searchParams.set("symbol", symbol);
-  url.searchParams.set("timeframe", timeframe);
-
-  try {
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-      signal: requestController.signal
+/* ---------- full render (analysis refresh) ---------- */
+window.renderSignal=function(data,key){
+  try{
+    const m=data.market||{};
+    const map=new Map();
+    (Array.isArray(m.candles)?m.candles:[]).forEach(c=>{
+      const t=toSec(c.time),o=num(c.open),h=num(c.high),l=num(c.low),cl=num(c.close);
+      if(t==null||o==null||h==null||l==null||cl==null)return;
+      map.set(t,{time:t,open:o,high:h,low:l,close:cl});
     });
+    const bars=Array.from(map.values()).sort((a,b)=>a.time-b.time);
+    if(!bars.length)throw new Error('No usable market.candles in response.');
+    const parts=String(key||'').split('|');
+    const changed=key!==S.key;
+    S.key=key;S.sym=parts[0]||data.symbol||'';S.tf=parts[1]||m.timeframe||'M15';
 
-    const raw = await response.text();
+    // keep the live forming candle across refreshes
+    if(!changed&&S.forming&&S.forming.time>bars[bars.length-1].time)bars.push(S.forming);else S.forming=null;
 
-    let payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      throw new Error(
-        `Worker returned non-JSON data (HTTP ${response.status}). ` +
-        `Check that /test-signal returns JSON. Response: ${raw.slice(0, 180)}`
-      );
+    const oldLen=S.bars.length;
+    let range=changed?null:chart.timeScale().getVisibleLogicalRange();
+    series.setData(bars);S.bars=bars;
+    if(!range)chart.timeScale().fitContent();
+    else{
+      const delta=bars.length-oldLen;
+      if(delta>0&&range.to>=oldLen-2)range={from:range.from+delta,to:range.to+delta};
+      chart.timeScale().setVisibleLogicalRange(range);
     }
 
-    if (!response.ok) {
-      throw new Error(payload.error || `HTTP ${response.status}`);
-    }
+    // setup
+    const st=data.setup||data.signal||data.decision||(data.analysis&&data.analysis.setup)||{};
+    const decision=String(st.decision||data.status||'NO_TRADE').toUpperCase();
+    const dir=String(st.direction||st.side||'').toUpperCase();
+    const noTrade=/NO_TRADE|WAIT|NONE/.test(decision);
+    const pick=(o,ks)=>{for(const k of ks){const v=num(o[k]);if(v!=null)return v;}return null;};
+    S.setup=noTrade?null:{entry:pick(st,['entry','entryPrice','entry_price','plannedEntry']),
+      sl:pick(st,['stopLoss','stop_loss','sl']),tp:pick(st,['takeProfit','take_profit','tp','tp1','target']),
+      time:toSec(st.createdAt||st.created_at||st.time),dir};
+    applyLevels();
 
-    // Supports either { result: {...} } or a direct result object.
-    const data = payload.result || payload;
+    // zones + structure
+    const out={zones:[],events:[]};
+    extract(data.analysis,out,0);extract(data.annotations,out,0);
+    if(st.candidateZone&&num(st.candidateZone.top)!=null)extract([Object.assign({type:'OB'},st.candidateZone)],out,0);
+    const cur=bars[bars.length-1].close;
+    const zs=dedupe(out.zones,z=>[z.kind,z.top,z.bottom,z.start].join('|'));
+    const live=zs.filter(z=>!z.filled).sort((a,b)=>Math.abs((a.top+a.bottom)/2-cur)-Math.abs((b.top+b.bottom)/2-cur));
+    const keep=[].concat(live.filter(z=>z.kind==='FVG').slice(0,4),live.filter(z=>z.kind==='OB').slice(0,3),zs.filter(z=>z.filled).slice(-4));
+    S.zones=keep;
+    S.events=dedupe(out.events,e=>[e.label,e.price,e.start].join('|')).slice(-10);
 
-    if (data.ok === false) {
-      throw new Error(data.error || data.message || "Signal engine failed.");
-    }
-
-    const candles = normalizeCandles(data.market?.candles);
-
-    if (candles.length) {
-      candleSeries.setData(candles);
-      chart.timeScale().fitContent();
-
-      const last = candles[candles.length - 1];
-      $("price").textContent = fmt(last.close);
-
-      showStatus(
-        `${candles.length} real candles loaded · ` +
-        `Last candle: ${new Date(last.time * 1000).toLocaleString()}`
-      );
-    } else {
-      candleSeries.setData([]);
-      $("price").textContent = fmt(data.market?.currentPrice);
-      showStatus(
-        "No candles were returned. Add market.candles to the engine response."
-      );
-    }
-
-    renderSignal(data.signal || data.setup);
-    renderEvidence(data);
-    renderQuality(data.market || {});
-
-  } catch (error) {
-    if (error.name === "AbortError") return;
-
-    showStatus("ERROR: " + error.message);
-    $("decision").textContent = "DATA ERROR";
-    $("decision").className = "signal-title neutral";
-    console.error("SKY AI SIGNALS:", error);
-  }
-}
-
-initChart();
-
-$("refresh").addEventListener("click", loadSignal);
-$("symbol").addEventListener("change", loadSignal);
-$("timeframe").addEventListener("change", loadSignal);
-
-loadSignal();
+    // panel
+    setText('decision',noTrade?'NO TRADE · WAIT':(dir||decision)+' SETUP');
+    $('decision').className=noTrade?'amber':(dir==='SELL'?'red':'green');
+    setText('tf','Timeframe: '+S.tf);setText('provider','Provider: '+(m.provider||data.provider||'Backend'));
+    setText('count','Candles: '+(m.closedCandleCount||bars.length));
+    const L=[];
+    if(st.confidenceLabel||st.confidence)L.push('Confidence: '+(st.confidenceLabel||st.confidence));
+    if(st.score!=null)L.push('Score: '+st.score+(st.maxScore!=null?' / '+st.maxScore:''));
+    if(st.entryStatus)L.push('Entry: '+st.entryStatus);
+    const an=data.analysis||{};
+    if(an.trend)L.push('Trend: '+(typeof an.trend==='string'?an.trend:(an.trend.direction||an.trend.bias||JSON.stringify(an.trend))));
+    const rs=Array.isArray(st.reasons)?st.reasons:(Array.isArray(st.evidence)?st.evidence:[]);
+    if(rs.length)L.push('Reasons:\n• '+rs.map(x=>typeof x==='string'?x:(x.label||x.text||JSON.stringify(x))).join('\n• '));
+    if(noTrade&&!rs.length)L.push('No confirmed setup returned by the backend.');
+    setText('detail',L.join('\n'));
+    legend();sched();
+  }catch(e){setText('decision','Could not render data');setText('detail',String(e&&e.message||e));}
+};
+init();
+})();
 </script>
 </body>
 </html>
