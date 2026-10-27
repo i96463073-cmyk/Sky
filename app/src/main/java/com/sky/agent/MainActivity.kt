@@ -78,7 +78,11 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 5000L
+
+    // Live price polling: 5s normally, 2s while the chart is open (cheap endpoint).
+    private var livePollMs = 5000L
+    // Full candles + SMC analysis refresh while the chart is open.
+    private val CHART_SIGNAL_POLL_MS = 10000L
 
     private val BG = Color.parseColor("#121212")
     private val CARD = Color.parseColor("#1E1E1E")
@@ -97,16 +101,19 @@ class MainActivity : AppCompatActivity() {
     private val priceViews = LinkedHashMap<String, TextView>()
     private val lastPrices = HashMap<String, Double>()
     private var chartDialog: Dialog? = null
+    // Set while the chart is open: receives every live tick so the last candle moves in real time.
+    private var chartTick: ((String, Double) -> Unit)? = null
 
     private val pollRunnable = object : Runnable {
         override fun run() {
             if (!polling) return
             fetchLive()
-            handler.postDelayed(this, POLL_MS)
+            handler.postDelayed(this, livePollMs)
         }
     }
 
     private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD")
+    private val CHART_TIMEFRAMES = listOf("M5", "M15", "H1")
     private val EXPLICIT_TV = mapOf("XAUUSD" to "OANDA:XAUUSD", "XAGUSD" to "OANDA:XAGUSD")
     private val FX_CCY = setOf("USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF")
     private val TV_PATTERN = Regex("^[A-Z0-9_]{1,20}:[A-Z0-9_.!]{1,20}$")
@@ -172,6 +179,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        chartTick = null
         chartDialog?.dismiss()
         chartDialog = null
         super.onDestroy()
@@ -334,7 +342,10 @@ class MainActivity : AppCompatActivity() {
                 tv.setTextColor(if (v > prev) GREEN else RED)
                 tv.postDelayed({ tv.setTextColor(Color.WHITE) }, 700)
             }
-            if (!v.isNaN()) lastPrices[sym] = v
+            if (!v.isNaN()) {
+                lastPrices[sym] = v
+                chartTick?.invoke(sym, v)
+            }
         }
     }
 
@@ -587,131 +598,288 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Professional chart page (TradingView Lightweight Charts, pinned version).
+     *  - FVG / order-block zones are DRAWN on the chart as shaded boxes via a custom canvas primitive.
+     *  - Real-time: window.tick(price) moves the last candle; window.renderSignal(json) only appends/updates
+     *    the newest candles (no full redraw), so it stays light on a phone.
+     *  - No template literals / dollar signs are used in the JS because this is a Kotlin raw string.
+     */
     private fun buildChartHtml(): String = """
 <!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
-*{box-sizing:border-box}html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#121212;color:#eee;font-family:Arial,sans-serif}
-body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:220px;flex:1}
-#panel{height:38%;min-height:145px;overflow:auto;background:#171717;border-top:1px solid #303030;padding:10px 12px}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.tag{padding:5px 8px;border:1px solid #383838;border-radius:12px;font-size:11px;color:#ddd}
-#decision{font-weight:bold;font-size:15px}#price{color:#00e676;font-weight:bold}#detail{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap}
-.green{color:#00e676}.red{color:#ff1744}.amber{color:#ffb300}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#121212;color:#e6e8eb;font:12px/1.4 Roboto,-apple-system,'Segoe UI',sans-serif}
+body{display:flex;flex-direction:column}
+#wrap{position:relative;flex:1;min-height:0}
+#chart{position:absolute;left:0;top:0;right:0;bottom:0}
+#lg{position:absolute;top:6px;left:8px;z-index:5;pointer-events:none;font-size:11px;color:#b5b9bf;text-shadow:0 1px 2px #000}
+#lg b{color:#fff;font-size:13px;margin-right:6px}
+#lg span{margin-right:8px;white-space:nowrap}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#26a69a;margin-right:4px;animation:p 1.6s ease-in-out infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
+#key{position:absolute;left:8px;bottom:6px;z-index:5;pointer-events:none;font-size:10px;color:#9aa0a6;display:flex;gap:10px}
+#key i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+#panel{background:#171a1e;border-top:1px solid #2a2f35;max-height:36%;overflow:auto;padding:0 12px 10px}
+#grab{padding:7px 0 6px;text-align:center}
+#grab i{display:inline-block;width:36px;height:4px;border-radius:2px;background:#3a4047}
+#head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.badge{padding:5px 11px;border-radius:14px;font-weight:700;font-size:12px;letter-spacing:.3px;border:1px solid}
+.amb{color:#ffb300;background:rgba(255,179,0,.12);border-color:rgba(255,179,0,.45)}
+.grn{color:#26a69a;background:rgba(38,166,154,.14);border-color:rgba(38,166,154,.5)}
+.red{color:#ef5350;background:rgba(239,83,80,.14);border-color:rgba(239,83,80,.5)}
+#px{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+#panel.min #more{display:none}
+#stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+.c{background:#1e2227;border:1px solid #2a2f35;border-radius:10px;padding:6px 8px;min-width:0}
+.c b{display:block;font-weight:500;font-size:10px;color:#8b9198;margin-bottom:1px}
+.c span{display:block;font-size:12px;color:#e6e8eb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#tog{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.tg{padding:5px 10px;border-radius:14px;border:1px solid #333a42;color:#8b9198;font-size:11px}
+.tg.on{color:#fff;border-color:#26a69a;background:rgba(38,166,154,.16)}
+#why{font-size:12px;color:#c2c6cc;line-height:1.5}
+#why div{padding-left:10px;position:relative}
+#why div:before{content:'';position:absolute;left:0;top:7px;width:4px;height:4px;border-radius:50%;background:#6b727a}
 </style>
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
-<div id="chart"></div>
+<div id="wrap">
+ <div id="chart"></div>
+ <div id="lg"></div>
+ <div id="key"><span><i style="background:rgba(38,166,154,.6)"></i>Bull FVG</span><span><i style="background:rgba(239,83,80,.6)"></i>Bear FVG</span><span><i style="background:rgba(255,179,0,.6)"></i>OB / zone</span></div>
+</div>
 <div id="panel">
- <div class="row"><span id="decision">Loading backend data…</span><span id="price"></span></div>
- <div class="row"><span class="tag" id="tf">Timeframe: M15</span><span class="tag" id="provider">Provider: —</span><span class="tag" id="count">Candles: —</span></div>
- <div id="detail">Waiting for the signal engine.</div>
+ <div id="grab"><i></i></div>
+ <div id="head"><span id="badge" class="badge amb">LOADING</span><span id="px"></span></div>
+ <div id="more">
+  <div id="stats"></div>
+  <div id="tog"><span class="tg on" data-k="filled">Filled FVG</span><span class="tg on" data-k="ob">Order blocks</span><span class="tg on" data-k="lv">Levels</span></div>
+  <div id="why"></div>
+ </div>
 </div>
 <script>
 (function(){
- const el=document.getElementById('chart');
- let chart=null, candles=null, volumeSeries=null, lastLines=[];
- function setText(id,value){document.getElementById(id).textContent=value==null?'':String(value);}
- function finite(v){return typeof v==='number' && Number.isFinite(v);}
- function firstNumber(obj,keys){for(const k of keys){const v=obj&&obj[k];if(typeof v==='number'&&Number.isFinite(v))return v;if(typeof v==='string'&&v.trim()!==''&&Number.isFinite(Number(v)))return Number(v);}return null;}
- function setupObject(data){return data.setup||data.signal||data.decision||data.analysis?.setup||{};}
- function removeLines(){if(candles){for(const line of lastLines){try{candles.removePriceLine(line);}catch(e){}}}lastLines=[];}
- function addLine(price,color,title,style){
-   if(!candles||!finite(price))return;
-   lastLines.push(candles.createPriceLine({price:price,color:color,lineWidth:1,lineStyle:style||2,axisLabelVisible:true,title:title}));
+ var g=function(i){return document.getElementById(i);};
+ var el=g('chart'),chart=null,candles=null,zp=null,lines=[],bars=[],zones=[],fresh=true,P=2,levels=null;
+ var opt={filled:true,ob:true,lv:true};
+ var UP='#26a69a',DN='#ef5350';
+ function fin(v){return typeof v==='number'&&isFinite(v);}
+ function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return c==='&'?'&amp;':(c==='<'?'&lt;':'&gt;');});}
+ function num(o,ks){for(var i=0;i<ks.length;i++){var v=o&&o[ks[i]];if(fin(v))return v;if(typeof v==='string'&&v.trim()!==''&&isFinite(Number(v)))return Number(v);}return null;}
+ function sec(v){if(v==null)return null;if(typeof v==='number')return v>100000000000?Math.floor(v/1000):v;var p=Date.parse(v);return isNaN(p)?null:Math.floor(p/1000);}
+ function fx(v){return fin(v)?v.toFixed(P):'—';}
+ function precFor(sym){sym=String(sym||'');return sym.indexOf('JPY')>=0?3:(sym.indexOf('XAU')>=0?2:5);}
+
+ function makePrimitive(){
+  var self={z:[],chart:null,series:null,req:null};
+  var view={zOrder:function(){return 'bottom';},renderer:function(){return {draw:function(t){t.useBitmapCoordinateSpace(function(s){paint(s);});}};}};
+  function paint(s){
+   if(!self.chart||!self.series||!self.z.length)return;
+   var ctx=s.context,hr=s.horizontalPixelRatio,vr=s.verticalPixelRatio,ts=self.chart.timeScale(),W=s.mediaSize.width;
+   var n=bars.length,px=12;
+   if(n>1){var a=ts.timeToCoordinate(bars[n-1].time),b=ts.timeToCoordinate(bars[n-2].time);if(a!=null&&b!=null&&a!==b)px=Math.abs(a-b);}
+   for(var i=0;i<self.z.length;i++){
+    var q=self.z[i];
+    if(q.kind==='OB'&&!opt.ob)continue;
+    if(q.filled&&!opt.filled)continue;
+    var y1=self.series.priceToCoordinate(q.top),y2=self.series.priceToCoordinate(q.bottom);
+    if(y1==null||y2==null)continue;
+    var x1=q.t1==null?0:ts.timeToCoordinate(q.t1);
+    if(x1==null){if(bars.length&&q.t1<bars[0].time)x1=0;else continue;}
+    var x2=q.filled?x1+px*10:W;
+    if(x2<0||x1>W)continue;
+    var l=Math.max(0,x1),top=Math.min(y1,y2),h=Math.max(1,Math.abs(y2-y1));
+    var c=q.dir==='bull'?'38,166,154':(q.dir==='bear'?'239,83,80':'255,179,0');
+    var X=Math.round(l*hr),Y=Math.round(top*vr),WW=Math.round((x2-l)*hr),HH=Math.round(h*vr);
+    ctx.fillStyle='rgba('+c+','+(q.filled?0.07:0.2)+')';
+    ctx.fillRect(X,Y,WW,HH);
+    ctx.strokeStyle='rgba('+c+','+(q.filled?0.28:0.75)+')';
+    ctx.lineWidth=Math.max(1,Math.round(hr));
+    ctx.strokeRect(X+0.5,Y+0.5,WW,HH);
+    if(!q.filled){
+     ctx.fillStyle='rgba('+c+',1)';
+     ctx.font='bold '+Math.round(10*vr)+'px sans-serif';
+     ctx.fillText(q.kind+(q.dir==='bull'?' \u25B2':(q.dir==='bear'?' \u25BC':'')),X+Math.round(5*hr),Y+Math.round(12*vr));
+    }
+   }
+  }
+  self.attached=function(p){self.chart=p.chart;self.series=p.series;self.req=p.requestUpdate;};
+  self.detached=function(){self.chart=null;self.series=null;self.req=null;};
+  self.updateAllViews=function(){};
+  self.paneViews=function(){return [view];};
+  self.set=function(z){self.z=z;if(self.req)self.req();};
+  self.redraw=function(){if(self.req)self.req();};
+  return self;
  }
+
  function init(){
-   if(!window.LightweightCharts){setText('decision','Chart library failed to load. Check internet connection.');return;}
-   chart=LightweightCharts.createChart(el,{
-     width:el.clientWidth,height:el.clientHeight,
-     layout:{background:{type:'solid',color:'#121212'},textColor:'#c8c8c8',fontSize:11},
-     grid:{vertLines:{color:'#242424'},horzLines:{color:'#242424'}},
-     rightPriceScale:{borderColor:'#383838',autoScale:true},
-     timeScale:{borderColor:'#383838',timeVisible:true,secondsVisible:false,rightOffset:5},
-     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
-     handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
-   });
-   candles=chart.addSeries(LightweightCharts.CandlestickSeries,{
-     upColor:'#00e676',downColor:'#ff1744',borderUpColor:'#00e676',borderDownColor:'#ff1744',
-     wickUpColor:'#00e676',wickDownColor:'#ff1744'
-   });
-   const resize=()=>{if(chart){chart.applyOptions({width:el.clientWidth,height:el.clientHeight});}};
-   if(window.ResizeObserver)new ResizeObserver(resize).observe(el);else window.addEventListener('resize',resize);
+  if(!window.LightweightCharts){g('badge').textContent='CHART LIBRARY FAILED';g('why').textContent='Check your internet connection and press Refresh.';return;}
+  chart=LightweightCharts.createChart(el,{
+   autoSize:true,
+   layout:{background:{type:'solid',color:'#121212'},textColor:'#9aa0a6',fontSize:11},
+   grid:{vertLines:{visible:false},horzLines:{color:'#1c1f23'}},
+   rightPriceScale:{borderColor:'#2a2f35',scaleMargins:{top:0.12,bottom:0.1}},
+   timeScale:{borderColor:'#2a2f35',timeVisible:true,secondsVisible:false,rightOffset:6,barSpacing:7},
+   crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#4a5058',labelBackgroundColor:'#2a2f35'},horzLine:{color:'#4a5058',labelBackgroundColor:'#2a2f35'}},
+   handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},
+   handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true}
+  });
+  candles=chart.addSeries(LightweightCharts.CandlestickSeries,{
+   upColor:UP,downColor:DN,borderVisible:false,wickUpColor:UP,wickDownColor:DN,
+   priceLineVisible:true,priceLineStyle:2,priceLineWidth:1
+  });
+  zp=makePrimitive();
+  candles.attachPrimitive(zp);
+  chart.subscribeCrosshairMove(function(p){
+   var d=p&&p.seriesData?p.seriesData.get(candles):null;
+   legend(d||bars[bars.length-1]);
+  });
+  var tg=document.querySelectorAll('.tg');
+  for(var i=0;i<tg.length;i++){(function(e){e.addEventListener('click',function(){
+   var k=e.getAttribute('data-k');opt[k]=!opt[k];e.className='tg'+(opt[k]?' on':'');
+   if(k==='lv')drawLevels();else zp.redraw();
+  });})(tg[i]);}
+  g('grab').addEventListener('click',function(){var p=g('panel');p.className=p.className==='min'?'':'min';});
  }
- function flattenObjects(value,out,depth){
-   if(depth>7||value==null)return;
-   if(Array.isArray(value)){value.forEach(v=>flattenObjects(v,out,depth+1));return;}
-   if(typeof value!=='object')return;
-   if((String(value.type||'').toUpperCase().includes('FVG')||String(value.label||'').toLowerCase().includes('fair value gap')) &&
-      (finite(value.top)||finite(value.bottom)||finite(value.price)))out.push(value);
-   Object.keys(value).forEach(k=>{if(typeof value[k]==='object'&&value[k]!==null)flattenObjects(value[k],out,depth+1);});
+
+ var symName='',tfName='';
+ function legend(b){
+  if(!b)return;
+  var up=b.close>=b.open,c=up?UP:DN;
+  g('lg').innerHTML='<b>'+esc(symName)+'</b><span><i class="dot"></i>'+esc(tfName)+'</span>'+
+   '<span style="color:'+c+'">O '+fx(b.open)+'</span><span style="color:'+c+'">H '+fx(b.high)+'</span><span style="color:'+c+'">L '+fx(b.low)+'</span><span style="color:'+c+'">C '+fx(b.close)+'</span>';
  }
+ function priceUi(p){
+  var e=g('px');e.textContent=fx(p);
+  var b=bars[bars.length-1];if(b)e.style.color=b.close>=b.open?UP:DN;
+ }
+ function clearLines(){for(var i=0;i<lines.length;i++){try{candles.removePriceLine(lines[i]);}catch(e){}}lines=[];}
+ function addLine(price,color,title,style){
+  if(!fin(price))return;
+  lines.push(candles.createPriceLine({price:price,color:color,lineWidth:1,lineStyle:style,axisLabelVisible:true,title:title}));
+ }
+ function drawLevels(){
+  clearLines();
+  if(!opt.lv||!levels)return;
+  addLine(levels.entry,'#40c4ff','ENTRY',0);
+  addLine(levels.sl,'#ef5350','SL',2);
+  addLine(levels.tp,'#26a69a','TP',2);
+ }
+
+ function collect(value,out,depth){
+  if(depth>7||value==null||typeof value!=='object')return;
+  if(Array.isArray(value)){for(var i=0;i<value.length;i++)collect(value[i],out,depth+1);return;}
+  var ty=String(value.type||'').toUpperCase(),lb=String(value.label||'').toLowerCase();
+  var isF=ty.indexOf('FVG')>=0||lb.indexOf('fair value gap')>=0;
+  var isO=ty.indexOf('ORDER')>=0||ty==='OB'||ty.indexOf('_OB')>=0||lb.indexOf('order block')>=0;
+  if((isF||isO)&&fin(value.top)&&fin(value.bottom)){
+   var d=String(value.direction||value.bias||value.type||'').toLowerCase();
+   var st=String(value.status||'').toLowerCase();
+   out.push({kind:isF?'FVG':'OB',top:value.top,bottom:value.bottom,dir:d.indexOf('bull')>=0?'bull':(d.indexOf('bear')>=0?'bear':'neutral'),
+    filled:st.indexOf('filled')>=0||(st.indexOf('mitigated')>=0&&st.indexOf('unmit')<0),
+    t1:sec(value.time||value.startTime||value.createdAt),id:String(value.id||'')});
+  }
+  var ks=Object.keys(value);
+  for(var j=0;j<ks.length;j++){var v=value[ks[j]];if(v&&typeof v==='object')collect(v,out,depth+1);}
+ }
+
+ function merge(nb){
+  var needFull=fresh||!bars.length||nb[0].time>bars[bars.length-1].time;
+  if(needFull){
+   candles.setData(nb);
+   if(fresh){var n=nb.length;chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-90),to:n+6});}
+   fresh=false;
+  }else{
+   var lt=bars[bars.length-1].time;
+   for(var i=0;i<nb.length;i++){if(nb[i].time>=lt)candles.update(nb[i]);}
+  }
+  bars=nb;
+ }
+
  function render(data){
-   try{
-     const market=data.market||{};
-     const raw=Array.isArray(market.candles)?market.candles:[];
-     const map=new Map();
-     raw.forEach(c=>{
-       let t=Number(c.time);
-       if(!Number.isFinite(t))return;
-       if(t>100000000000)t=Math.floor(t/1000);
-       const o=Number(c.open),h=Number(c.high),l=Number(c.low),cl=Number(c.close);
-       if(![o,h,l,cl].every(Number.isFinite))return;
-       map.set(Math.floor(t),{time:Math.floor(t),open:o,high:h,low:l,close:cl});
-     });
-     const bars=Array.from(map.values()).sort((a,b)=>a.time-b.time);
-     if(!bars.length)throw new Error('Backend response contains no usable market.candles.');
-     candles.setData(bars);
-     chart.timeScale().fitContent();
-     removeLines();
+  try{
+   var market=data.market||{};
+   var raw=Array.isArray(market.candles)?market.candles:[];
+   var map={},keys=[];
+   raw.forEach(function(c){
+    var t=sec(c.time);if(t==null)return;
+    var o=Number(c.open),h=Number(c.high),l=Number(c.low),cl=Number(c.close);
+    if(![o,h,l,cl].every(isFinite))return;
+    if(!map[t])keys.push(t);
+    map[t]={time:t,open:o,high:h,low:l,close:cl};
+   });
+   keys.sort(function(a,b){return a-b;});
+   var nb=keys.map(function(k){return map[k];});
+   if(!nb.length)throw new Error('Backend response contains no usable market.candles.');
+   symName=String(data.symbol||symName||'');tfName=String(market.timeframe||data.timeframe||tfName||'');
+   P=precFor(symName);
+   candles.applyOptions({priceFormat:{type:'price',precision:P,minMove:1/Math.pow(10,P)}});
+   merge(nb);
 
-     const setup=setupObject(data);
-     const decision=String(setup.decision||data.status||'NO_TRADE').toUpperCase();
-     const direction=String(setup.direction||setup.side||'').toUpperCase();
-     const isNoTrade=decision==='NO_TRADE'||decision==='WAIT'||decision==='NONE';
-     const entry=firstNumber(setup,['entry','entryPrice','entry_price','plannedEntry']);
-     const sl=firstNumber(setup,['stopLoss','stop_loss','sl']);
-     const tp=firstNumber(setup,['takeProfit','take_profit','tp','tp1','target']);
-     if(!isNoTrade){
-       addLine(entry,'#40c4ff','ENTRY',0);
-       addLine(sl,'#ff1744','STOP LOSS',2);
-       addLine(tp,'#00e676','TAKE PROFIT',2);
-     }
-     const current=firstNumber(market,['currentPrice'])??bars[bars.length-1].close;
-     setText('decision',isNoTrade?'NO TRADE · WAIT FOR CONFIRMATION':(direction||decision)+' SETUP');
-     document.getElementById('decision').className=isNoTrade?'amber':(direction==='SELL'?'red':'green');
-     setText('price','Price '+current.toFixed(String(data.symbol||'XAUUSD').includes('JPY')?3:2));
-     setText('tf','Timeframe: '+(market.timeframe||data.timeframe||'M15'));
-     setText('provider','Provider: '+(market.provider||data.provider||'Backend'));
-     setText('count','Closed candles: '+(market.closedCandleCount||bars.length));
+   var setup=data.setup||data.signal||data.decision||(data.analysis&&data.analysis.setup)||{};
+   var decision=String(setup.decision||data.status||'NO_TRADE').toUpperCase();
+   var direction=String(setup.direction||setup.side||'').toUpperCase();
+   var noTrade=decision==='NO_TRADE'||decision==='WAIT'||decision==='NONE';
+   var entry=num(setup,['entry','entryPrice','entry_price','plannedEntry']);
+   var sl=num(setup,['stopLoss','stop_loss','sl']);
+   var tp=num(setup,['takeProfit','take_profit','tp','tp1','target']);
+   levels=noTrade?null:{entry:entry,sl:sl,tp:tp};
+   drawLevels();
 
-     const lines=[];
-     if(setup.confidenceLabel||setup.confidence)lines.push('Confidence: '+(setup.confidenceLabel||setup.confidence));
-     if(setup.score!=null)lines.push('Score: '+setup.score+(setup.maxScore!=null?'/'+setup.maxScore:''));
-     if(entry!=null)lines.push('Entry: '+entry);
-     if(sl!=null)lines.push('Stop loss: '+sl);
-     if(tp!=null)lines.push('Take profit: '+tp);
-     if(setup.entryStatus)lines.push('Entry status: '+setup.entryStatus);
-     if(setup.candidateZone){const z=setup.candidateZone;lines.push('Candidate zone: '+(z.bottom??'—')+' – '+(z.top??'—')+(z.status?' ('+z.status+')':''));}
-     const analysis=data.analysis||{};
-     if(analysis.trend)lines.push('Trend: '+(typeof analysis.trend==='string'?analysis.trend:JSON.stringify(analysis.trend)));
-     if(analysis.atr!=null)lines.push('ATR: '+(typeof analysis.atr==='object'?JSON.stringify(analysis.atr):analysis.atr));
-     const reasons=Array.isArray(setup.reasons)?setup.reasons:(Array.isArray(setup.evidence)?setup.evidence:[]);
-     if(reasons.length)lines.push('Reasons:\n• '+reasons.map(x=>typeof x==='string'?x:JSON.stringify(x)).join('\n• '));
-     const gaps=[];flattenObjects(analysis,gaps,0);flattenObjects(data.annotations||[],gaps,0);
-     const unique=[];const seen=new Set();
-     gaps.forEach(g=>{const id=String(g.id||g.label||'')+'|'+String(g.time||g.startTime||'')+'|'+String(g.top)+'|'+String(g.bottom);if(!seen.has(id)){seen.add(id);unique.push(g);}});
-     if(unique.length){
-       lines.push('Fair Value Gaps (latest '+Math.min(unique.length,8)+'):');
-       unique.slice(-8).reverse().forEach(g=>lines.push('• '+(g.direction||'')+' FVG '+(g.bottom??'—')+'–'+(g.top??'—')+(g.status?' · '+g.status:'')+(g.time?' · '+g.time:'')));
-     }
-     if(isNoTrade&&!lines.some(x=>x.startsWith('Reasons:')))lines.push('No confirmed trade setup was returned by the backend. No entry, SL or TP is being invented.');
-     setText('detail',lines.length?lines.join('\n'):'Backend data loaded. No additional setup details were supplied.');
-   }catch(e){setText('decision','Could not render backend data');setText('detail',String(e&&e.message||e));}
+   var all=[];
+   collect(data.analysis||{},all,0);collect(data.annotations||[],all,0);
+   if(setup.candidateZone&&fin(setup.candidateZone.top)&&fin(setup.candidateZone.bottom)){
+    var cz=setup.candidateZone;
+    all.push({kind:'ZONE',top:cz.top,bottom:cz.bottom,dir:direction==='BUY'?'bull':(direction==='SELL'?'bear':'neutral'),filled:false,t1:sec(cz.time),id:'cand'});
+   }
+   var seen={},uniq=[];
+   all.forEach(function(z){var k=z.kind+'|'+z.id+'|'+z.t1+'|'+z.top+'|'+z.bottom;if(!seen[k]){seen[k]=1;uniq.push(z);}});
+   uniq.sort(function(a,b){return (a.t1||0)-(b.t1||0);});
+   var open=uniq.filter(function(z){return !z.filled;}).slice(-8);
+   var done=uniq.filter(function(z){return z.filled;}).slice(-6);
+   zones=open.concat(done);
+   zp.set(zones);
+
+   var cur=num(market,['currentPrice']);if(cur==null)cur=nb[nb.length-1].close;
+   var bd=g('badge');
+   bd.textContent=noTrade?'NO TRADE \u00B7 WAIT':(direction||decision)+' SETUP';
+   bd.className='badge '+(noTrade?'amb':(direction==='SELL'?'red':'grn'));
+   priceUi(cur);legend(nb[nb.length-1]);
+
+   var trend=data.analysis&&data.analysis.trend;
+   if(trend&&typeof trend==='object')trend=trend.direction||trend.bias||trend.trend||JSON.stringify(trend);
+   var atr=data.analysis&&data.analysis.atr;
+   if(atr&&typeof atr==='object')atr=fin(atr.value)?atr.value.toFixed(2):JSON.stringify(atr);
+   var score=setup.score!=null?(setup.score+(setup.maxScore!=null?' / '+setup.maxScore:'')):null;
+   var cells=[['Confidence',setup.confidenceLabel||setup.confidence],['Score',score],['Trend',trend],['ATR',atr],['Entry',setup.entryStatus],
+    ['Open FVG',open.filter(function(z){return z.kind==='FVG';}).length]];
+   if(!noTrade){cells.push(['Entry price',fin(entry)?fx(entry):null],['Stop loss',fin(sl)?fx(sl):null],['Take profit',fin(tp)?fx(tp):null]);}
+   g('stats').innerHTML=cells.filter(function(c){return c[1]!=null&&c[1]!=='';}).map(function(c){return '<div class="c"><b>'+esc(c[0])+'</b><span>'+esc(c[1])+'</span></div>';}).join('');
+
+   var reasons=Array.isArray(setup.reasons)?setup.reasons:(Array.isArray(setup.evidence)?setup.evidence:[]);
+   var html=reasons.map(function(x){return '<div>'+esc(typeof x==='string'?x:JSON.stringify(x))+'</div>';}).join('');
+   if(noTrade&&!html)html='<div>No confirmed setup from the backend. No entry, SL or TP is invented.</div>';
+   g('why').innerHTML=html;
+  }catch(e){g('badge').textContent='RENDER ERROR';g('badge').className='badge red';g('why').textContent=String(e&&e.message||e);}
  }
+
+ // Real-time tick from the live price feed: moves only the last candle.
+ window.tick=function(p){
+  if(!candles||!bars.length||!fin(p))return;
+  var b=bars[bars.length-1];
+  b.close=p;if(p>b.high)b.high=p;if(p<b.low)b.low=p;
+  candles.update(b);
+  priceUi(p);legend(b);
+ };
+ window.resetChart=function(){
+  fresh=true;bars=[];zones=[];levels=null;
+  if(candles){candles.setData([]);clearLines();zp.set([]);}
+  g('badge').textContent='LOADING';g('badge').className='badge amb';g('px').textContent='';g('stats').innerHTML='';g('why').innerHTML='';
+ };
  window.renderSignal=render;
  init();
 })();
@@ -733,7 +901,7 @@ body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(10), dp(12), dp(10))
+            setPadding(dp(14), dp(8), dp(12), dp(8))
             setBackgroundColor(Color.parseColor("#181818"))
         }
         val title = makeText("$cleanSymbol · SKY AI SIGNALS", 15f, Color.WHITE, true)
@@ -752,16 +920,19 @@ body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:
         header.addView(close)
         root.addView(header)
 
+        // One compact row: timeframes first, a divider, then symbols.
         val symbols = LinkedHashSet<String>()
         symbols.add(cleanSymbol)
         priceViews.keys.forEach { symbols.add(it.uppercase(Locale.US)) }
         FALLBACK_SYMBOLS.forEach { symbols.add(it) }
         val chipRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(7), dp(12), dp(7))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(6), dp(12), dp(6))
         }
         val chipScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
+            setBackgroundColor(Color.parseColor("#181818"))
             addView(chipRow)
         }
         root.addView(chipScroll)
@@ -784,8 +955,8 @@ body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:
         frame.addView(error)
         root.addView(frame)
 
-        val footer = makeText("Candles and SMC analysis from your SKY AI backend · Drag to pan · Pinch to zoom", 10f, MUTED).apply {
-            setPadding(dp(12), dp(7), dp(12), dp(8))
+        val footer = makeText("Live · candles & SMC from your SKY AI backend · Drag to pan · Pinch to zoom", 10f, MUTED).apply {
+            setPadding(dp(12), dp(5), dp(12), dp(6))
         }
         root.addView(footer)
 
@@ -828,54 +999,119 @@ body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:
         }
 
         val chips = LinkedHashMap<String, TextView>()
+        val tfChips = LinkedHashMap<String, TextView>()
         var selectedSymbol = cleanSymbol
+        var selectedTf = "M15"
+        val signalBusy = AtomicBoolean(false)
+
         fun styleChips() {
             chips.forEach { (name, chip) ->
                 val selected = name == selectedSymbol
                 chip.setTextColor(if (selected) Color.BLACK else Color.WHITE)
                 chip.background = roundedBg(if (selected) GREEN else Color.parseColor("#262626"), dpf(18f), if (selected) GREEN else STROKE)
             }
+            tfChips.forEach { (name, chip) ->
+                val selected = name == selectedTf
+                chip.setTextColor(if (selected) GREEN else MUTED)
+                chip.background = roundedBg(if (selected) ColorUtils.setAlphaComponent(GREEN, 0x22) else Color.TRANSPARENT, dpf(18f), if (selected) GREEN else STROKE)
+            }
         }
-        fun loadData() {
-            selectedSymbol = selectedSymbol.uppercase(Locale.US)
-            title.text = "$selectedSymbol · SKY AI SIGNALS"
-            styleChips()
-            loader.visibility = View.VISIBLE
-            error.visibility = View.GONE
-            loadSignalData(selectedSymbol, "M15") { json, message ->
-                if (dialog.isShowing && !isFinishing && !isDestroyed) {
+
+        // reset = true: user changed symbol/timeframe/refresh -> clear chart and show loader.
+        // reset = false: silent background refresh, only the newest candles + zones are updated.
+        fun loadData(reset: Boolean) {
+            if (reset) {
+                selectedSymbol = selectedSymbol.uppercase(Locale.US)
+                title.text = "$selectedSymbol · SKY AI SIGNALS"
+                styleChips()
+                loader.visibility = View.VISIBLE
+                error.visibility = View.GONE
+                queuedChartJson = null
+                if (chartPageReady) web.evaluateJavascript("window.resetChart && window.resetChart();", null)
+            } else if (signalBusy.get()) {
+                return
+            }
+            signalBusy.set(true)
+            val reqSymbol = selectedSymbol
+            val reqTf = selectedTf
+            loadSignalData(reqSymbol, reqTf) { json, message ->
+                val current = reqSymbol == selectedSymbol && reqTf == selectedTf
+                if (current) signalBusy.set(false)
+                if (current && dialog.isShowing && !isFinishing && !isDestroyed) {
                     loader.visibility = View.GONE
                     if (json == null) {
-                        error.text = "Couldn't load backend candles.\n$message"
-                        error.visibility = View.VISIBLE
+                        if (reset) {
+                            error.text = "Couldn't load backend candles.\n$message"
+                            error.visibility = View.VISIBLE
+                        }
                     } else {
+                        error.visibility = View.GONE
                         injectChartData(json)
                     }
                 }
             }
         }
 
+        // Timeframe chips
+        for (tf in CHART_TIMEFRAMES) {
+            val chip = makeText(tf, 12f, MUTED, true).apply {
+                setPadding(dp(11), dp(6), dp(11), dp(6))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).also { it.marginEnd = dp(6) }
+            }
+            applyBounce(chip)
+            chip.setOnClickListener { selectedTf = tf; loadData(true) }
+            tfChips[tf] = chip
+            chipRow.addView(chip)
+        }
+        val divider = View(this).apply {
+            setBackgroundColor(STROKE)
+            layoutParams = LinearLayout.LayoutParams(dp(1), dp(22)).also { it.marginStart = dp(2); it.marginEnd = dp(10) }
+        }
+        chipRow.addView(divider)
+
+        // Symbol chips
         for (name in symbols) {
             val chip = makeText(name, 12f, Color.WHITE, true).apply {
-                setPadding(dp(12), dp(7), dp(12), dp(7))
+                setPadding(dp(12), dp(6), dp(12), dp(6))
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).also { it.marginEnd = dp(7) }
             }
             applyBounce(chip)
             chip.setOnClickListener {
                 selectedSymbol = name
-                loadData()
+                loadData(true)
             }
             chips[name] = chip
             chipRow.addView(chip)
         }
 
-        refresh.setOnClickListener { loadData() }
+        // Background refresh of candles + SMC zones every few seconds while the chart is open.
+        val signalPoll = object : Runnable {
+            override fun run() {
+                if (!dialog.isShowing || isFinishing || isDestroyed) return
+                loadData(false)
+                handler.postDelayed(this, CHART_SIGNAL_POLL_MS)
+            }
+        }
+
+        // Live ticks from the cheap /api/live poll move the last candle in real time.
+        chartTick = { sym, price ->
+            if (chartPageReady && dialog.isShowing && sym.equals(selectedSymbol, ignoreCase = true) && !price.isNaN()) {
+                web.evaluateJavascript("window.tick && window.tick(" + String.format(Locale.US, "%.5f", price) + ")", null)
+            }
+        }
+
+        refresh.setOnClickListener { loadData(true) }
         close.setOnClickListener { dialog.dismiss() }
         dialog.setOnDismissListener {
+            handler.removeCallbacks(signalPoll)
+            if (chartDialog === dialog) {
+                chartDialog = null
+                chartTick = null
+                livePollMs = 5000L
+            }
             web.stopLoading()
             (web.parent as? ViewGroup)?.removeView(web)
             web.destroy()
-            if (chartDialog === dialog) chartDialog = null
         }
         dialog.setContentView(root)
         dialog.window?.apply {
@@ -887,7 +1123,14 @@ body{display:flex;flex-direction:column}#chart{width:100%;height:62%;min-height:
         dialog.show()
         dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
         web.loadDataWithBaseURL("https://local.skyai/", buildChartHtml(), "text/html", "UTF-8", null)
-        loadData()
+
+        // Faster live-price polling while the chart is visible.
+        livePollMs = 2000L
+        handler.removeCallbacks(pollRunnable)
+        if (polling) handler.post(pollRunnable)
+
+        loadData(true)
+        handler.postDelayed(signalPoll, CHART_SIGNAL_POLL_MS)
     }
 
     private fun sendChat() {
