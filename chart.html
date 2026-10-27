@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SKY AI SIGNALS — Chart & Evidence</title>
+
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b14;
+      --panel: #121626;
+      --border: #272d43;
+      --text: #eef2ff;
+      --muted: #9aa5c4;
+      --green: #20d6a1;
+      --red: #ff5d73;
+      --purple: #a78bfa;
+      --blue: #60a5fa;
+      --yellow: #fbbf24;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, Arial, sans-serif;
+    }
+
+    header {
+      padding: 18px;
+      border-bottom: 1px solid var(--border);
+      background: #0e1120;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      letter-spacing: .4px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 5px;
+    }
+
+    main {
+      max-width: 1400px;
+      margin: auto;
+      padding: 14px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 9px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    select, button, input {
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 11px;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #6d4aff;
+      border-color: #8064ff;
+      font-weight: 700;
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: wait;
+    }
+
+    #status {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 5px 0 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .panel {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    #chart {
+      height: min(65vh, 600px);
+      min-height: 350px;
+      width: 100%;
+    }
+
+    .price-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px;
+    }
+
+    .price-box {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      min-width: 0;
+    }
+
+    .price-box small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .price-box strong {
+      overflow-wrap: anywhere;
+      font-size: 13px;
+    }
+
+    .green { color: var(--green); }
+    .red { color: var(--red); }
+    .purple { color: var(--purple); }
+    .yellow { color: var(--yellow); }
+
+    .content {
+      padding: 13px;
+    }
+
+    .badge {
+      display: inline-block;
+      border-radius: 7px;
+      padding: 6px 9px;
+      font-weight: 800;
+      font-size: 12px;
+      background: #252a3e;
+      margin: 0 5px 7px 0;
+    }
+
+    .evidence-item {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .evidence-item b {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .section-label {
+      margin: 15px 0 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .disclaimer {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+      padding: 13px;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 850px) {
+      main { padding: 9px; }
+      .grid { grid-template-columns: 1fr; }
+      #chart {
+        height: 55vh;
+        min-height: 320px;
+      }
+      header { padding: 14px; }
+    }
+  </style>
+</head>
+
+<body>
+<header>
+  <h1>⚡ SKY AI SIGNALS</h1>
+  <div class="subtitle">Live market candles · Smart Money Concepts · Setup evidence</div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <select id="symbol">
+      <option value="XAUUSD">XAUUSD — Gold</option>
+      <option value="EURUSD">EURUSD</option>
+      <option value="GBPUSD">GBPUSD</option>
+      <option value="USDJPY">USDJPY</option>
+      <option value="AUDUSD">AUDUSD</option>
+      <option value="USDCAD">USDCAD</option>
+      <option value="USDCHF">USDCHF</option>
+      <option value="NZDUSD">NZDUSD</option>
+    </select>
+
+    <select id="timeframe">
+      <option value="M5">M5</option>
+      <option value="M15" selected>M15</option>
+      <option value="M30">M30</option>
+      <option value="H1">H1</option>
+      <option value="H4">H4</option>
+      <option value="D1">D1</option>
+    </select>
+
+    <button id="loadButton" onclick="loadSignal()">Analyze market</button>
+  </div>
+
+  <div id="status">Connect to your Worker to load market data.</div>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="panel-title" id="chartTitle">Candlestick chart</div>
+      <div id="chart"></div>
+
+      <div class="price-summary">
+        <div class="price-box">
+          <small>ENTRY</small>
+          <strong id="entry" class="purple">—</strong>
+        </div>
+        <div class="price-box">
+          <small>STOP LOSS</small>
+          <strong id="sl" class="red">—</strong>
+        </div>
+        <div class="price-box">
+          <small>TAKE PROFIT</small>
+          <strong id="tp" class="green">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="panel-title">Signal evidence</div>
+      <div class="content">
+        <div id="decision"></div>
+        <div id="summary" class="muted">No analysis loaded yet.</div>
+
+        <div class="section-label">Why this decision?</div>
+        <div id="reasons"></div>
+
+        <div class="section-label">Structure evidence</div>
+        <div id="structure"></div>
+
+        <div class="section-label">Liquidity & zones</div>
+        <div id="zones"></div>
+
+        <div class="section-label">Market data quality</div>
+        <div id="quality"></div>
+      </div>
+
+      <div class="disclaimer">
+        A setup is not a confirmed trade. Entry, stop-loss and take-profit
+        are planned levels supplied by the analysis engine. Confirm that
+        the chart and market feed are current before relying on a setup.
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+  /*
+   * IMPORTANT:
+   * Replace this with your actual deployed Cloudflare Worker URL.
+   * Do not include /test-signal at the end.
+   */
+  const WORKER_URL = "https://YOUR-WORKER-URL";
+
+  const chartElement = document.getElementById("chart");
+
+  const chart = LightweightCharts.createChart(chartElement, {
+    autoSize: true,
+    layout: {
+      background: { color: "#121626" },
+      textColor: "#cbd5e1"
+    },
+    grid: {
+      vertLines: { color: "#20263a" },
+      horzLines: { color: "#20263a" }
+    },
+    rightPriceScale: {
+      borderColor: "#343b53",
+      autoScale: true
+    },
+    timeScale: {
+      borderColor: "#343b53",
+      timeVisible: true,
+      secondsVisible: false,
+      rightOffset: 5,
+      barSpacing: 8
+    },
+    crosshair: {
+      vertLine: { color: "#7c83a3" },
+      horzLine: { color: "#7c83a3" }
+    },
+    localization: {
+      locale: "en-GB"
+    }
+  });
+
+  const candlesSeries = chart.addSeries(
+    LightweightCharts.CandlestickSeries,
+    {
+      upColor: "#20d6a1",
+      downColor: "#ff5d73",
+      borderVisible: false,
+      wickUpColor: "#20d6a1",
+      wickDownColor: "#ff5d73",
+      priceLineVisible: true
+    }
+  );
+
+  let currentData = null;
+  let priceLines = [];
+
+  const $ = id => document.getElementById(id);
+
+  function safeText(value) {
+    if (value === null || value === undefined || value === "") {
+      return "Not available";
+    }
+
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+
+    return String(value);
+  }
+
+  function formatPrice(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return "—";
+    }
+
+    return value.toLocaleString("en-US", {
+      maximumFractionDigits: 6
+    });
+  }
+
+  // Only use textContent for backend-supplied values.
+  // This avoids treating evidence strings as executable HTML.
+  function addItem(container, title, value, className = "") {
+    const item = document.createElement("div");
+    item.className = "evidence-item";
+
+    const heading = document.createElement("b");
+    heading.textContent = title;
+    if (className) heading.className = className;
+
+    const body = document.createElement("div");
+    body.textContent = safeText(value);
+
+    item.append(heading, body);
+    container.appendChild(item);
+  }
+
+  function clearPriceLines() {
+    for (const line of priceLines) {
+      try {
+        candlesSeries.removePriceLine(line);
+      } catch {}
+    }
+    priceLines = [];
+  }
+
+  function addPriceLine(price, title, color, lineStyle = 2) {
+    if (typeof price !== "number" || !Number.isFinite(price)) return;
+
+    priceLines.push(
+      candlesSeries.createPriceLine({
+        price,
+        title,
+        color,
+        lineWidth: 2,
+        lineStyle,
+        axisLabelVisible: true,
+        lineVisible: true
+      })
+    );
+  }
+
+  function normalizeTimestamp(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      // Backend may supply seconds or milliseconds.
+      return Math.floor(value > 1e12 ? value / 1000 : value);
+    }
+
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) {
+        return Math.floor(parsed / 1000);
+      }
+    }
+
+    return null;
+  }
+
+  function annotationTime(annotation) {
+    return normalizeTimestamp(
+      annotation.time ??
+      annotation.timestamp ??
+      annotation.candleTime ??
+      annotation.iso
+    );
+  }
+
+  function drawAnnotationMarkers(annotations, candles) {
+    const validTimes = new Set(candles.map(c => c.time));
+
+    const markers = (Array.isArray(annotations) ? annotations : [])
+      .map(a => {
+        if (!a || typeof a !== "object") return null;
+
+        const time = annotationTime(a);
+        if (time === null || !validTimes.has(time)) return null;
+
+        const label = String(
+          a.label ?? a.type ?? a.kind ?? a.event ?? a.name ?? "SMC"
+        );
+
+        const normalized = label.toLowerCase();
+
+        let position = "aboveBar";
+        let shape = "circle";
+        let color = "#a78bfa";
+
+        if (
+          normalized.includes("bull") ||
+          normalized.includes("buy") ||
+          normalized.includes("sweep_low")
+        ) {
+          position = "belowBar";
+          shape = "arrowUp";
+          color = "#20d6a1";
+        } else if (
+          normalized.includes("bear") ||
+          normalized.includes("sell") ||
+          normalized.includes("sweep_high")
+        ) {
+          position = "aboveBar";
+          shape = "arrowDown";
+          color = "#ff5d73";
+        } else if (
+          normalized.includes("bos") ||
+          normalized.includes("choch") ||
+          normalized.includes("structure")
+        ) {
+          color = "#60a5fa";
+        }
+
+        return {
+          time,
+          position,
+          shape,
+          color,
+          text: label.slice(0, 18)
+        };
+      })
+      .filter(Boolean);
+
+    // Markers must be in chronological order.
+    markers.sort((a, b) => a.time - b.time);
+
+    if (typeof LightweightCharts.createSeriesMarkers === "function") {
+      LightweightCharts.createSeriesMarkers(candlesSeries, markers);
+    }
+  }
+
+  function renderReasons(setup) {
+    const box = $("reasons");
+    box.replaceChildren();
+
+    const reasons = Array.isArray(setup?.reasons) ? setup.reasons : [];
+    const evidence = Array.isArray(setup?.evidence) ? setup.evidence : [];
+
+    if (!reasons.length && !evidence.length) {
+      addItem(box, "Evidence", "The engine did not provide detailed reasons.");
+      return;
+    }
+
+    reasons.forEach((reason, index) => {
+      addItem(box, `Reason ${index + 1}`, reason, "purple");
+    });
+
+    evidence.forEach((item, index) => {
+      addItem(box, `Evidence ${index + 1}`, item, "yellow");
+    });
+  }
+
+  function renderArray(containerId, title, values) {
+    const box = $(containerId);
+    box.replaceChildren();
+
+    if (!Array.isArray(values) || values.length === 0) {
+      addItem(box, title, "No items returned by the analysis.");
+      return;
+    }
+
+    values.forEach((value, index) => {
+      addItem(box, `${title} ${index + 1}`, value);
+    });
+  }
+
+  function renderSignal(data) {
+    currentData = data;
+
+    const market = data.market || {};
+    const setup = data.setup || data.signal || {};
+    const analysis = data.analysis || {};
+
+    const candles = Array.isArray(market.candles)
+      ? market.candles
+      : [];
+
+    if (!candles.length) {
+      throw new Error(
+        "The backend returned no historical candles. Add the candles property to engine.js first."
+      );
+    }
+
+    const chartCandles = candles
+      .map(c => ({
+        time: normalizeTimestamp(c.time ?? c.iso),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close)
+      }))
+      .filter(c =>
+        c.time !== null &&
+        Number.isFinite(c.open) &&
+        Number.isFinite(c.high) &&
+        Number.isFinite(c.low) &&
+        Number.isFinite(c.close) &&
+        c.high >= Math.max(c.open, c.close) &&
+        c.low <= Math.min(c.open, c.close)
+      )
+      .sort((a, b) => a.time - b.time)
+      .filter((c, i, all) => i === 0 || c.time > all[i - 1].time);
+
+    if (!chartCandles.length) {
+      throw new Error("No valid OHLC candles were returned.");
+    }
+
+    candlesSeries.setData(chartCandles);
+    clearPriceLines();
+
+    // Entry/SL/TP names match the setup object from your decision.js.
+    const levels = setup.levels || data.signal?.levels || {};
+
+    const entry = levels.planned_entry;
+    const stopLoss = levels.stop_loss;
+    const takeProfit = levels.take_profit;
+
+    addPriceLine(entry, "ENTRY", "#a78bfa", 2);
+    addPriceLine(stopLoss, "SL", "#ff5d73", 2);
+    addPriceLine(takeProfit, "TP", "#20d6a1", 2);
+
+    const annotations = Array.isArray(data.annotations)
+      ? data.annotations
+      : [];
+
+    drawAnnotationMarkers(annotations, chartCandles);
+
+    chart.timeScale().fitContent();
+
+    $("chartTitle").textContent =
+      `${data.symbol || "Market"} · ${data.timeframe || ""} · Candlesticks`;
+
+    $("entry").textContent = formatPrice(entry);
+    $("sl").textContent = formatPrice(stopLoss);
+    $("tp").textContent = formatPrice(takeProfit);
+
+    const decision = setup.decision || data.status || "NO_TRADE";
+    const direction = setup.direction || "No direction";
+
+    $("decision").replaceChildren();
+
+    const badge = document.createElement("span");
+    badge.className = "badge " +
+      (direction === "BUY" ? "green" :
+       direction === "SELL" ? "red" : "yellow");
+    badge.textContent = `${decision} · ${direction}`;
+    $("decision").appendChild(badge);
+
+    const score = setup.score;
+    const maxScore = setup.maxScore;
+
+    const scoreText =
+      score !== undefined && maxScore !== undefined
+        ? `Score: ${score}/${maxScore}`
+        : "Score not provided";
+
+    $("summary").textContent =
+      `${scoreText} · Confidence: ${setup.confidenceLabel || "Not provided"} · ` +
+      `Trend: ${analysis.trend || "Not provided"} · ` +
+      `Candles: ${chartCandles.length}`;
+
+    renderReasons(setup);
+
+    renderArray(
+      "structure",
+      "Structure event",
+      analysis.structureEvents
+    );
+
+    const zoneBox = $("zones");
+    zoneBox.replaceChildren();
+
+    const sweeps = Array.isArray(analysis.sweeps) ? analysis.sweeps : [];
+    const orderBlocks = Array.isArray(analysis.orderBlocks)
+      ? analysis.orderBlocks
+      : [];
+    const fvgs = Array.isArray(analysis.fvg) ? analysis.fvg : [];
+    const pools = Array.isArray(analysis.liquidityPools)
+      ? analysis.liquidityPools
+      : [];
+
+    addItem(zoneBox, "Liquidity sweeps", sweeps.length ? sweeps : "No sweeps reported.");
+    addItem(zoneBox, "Order blocks", orderBlocks.length ? orderBlocks : "No order blocks reported.");
+    addItem(zoneBox, "Fair value gaps", fvgs.length ? fvgs : "No FVGs reported.");
+    addItem(zoneBox, "Liquidity pools", pools.length ? pools : "No liquidity pools reported.");
+
+    const quality = market.quality || {};
+    const freshness = market.freshness || {};
+
+    $("quality").replaceChildren();
+    addItem($("quality"), "Provider", data.provider || "Unknown");
+    addItem($("quality"), "Fetched at", data.fetchedAt || "Not provided");
+    addItem($("quality"), "Rejected candles", quality.rejectedCount ?? 0);
+    addItem($("quality"), "Unexpected gaps", quality.unexpectedGaps ?? 0);
+    addItem($("quality"), "Freshness", freshness);
+
+    $("status").textContent =
+      `Loaded ${chartCandles.length} candles for ${data.symbol} ${data.timeframe}. ` +
+      `Last closed candle: ${market.latestClosedCandle?.time || "not provided"}.`;
+  }
+
+  async function loadSignal() {
+    const button = $("loadButton");
+    button.disabled = true;
+    $("status").textContent = "Fetching market data and analyzing SMC evidence…";
+
+    try {
+      if (!WORKER_URL || WORKER_URL.includes("YOUR-WORKER-URL")) {
+        throw new Error("Edit chart.html and set WORKER_URL to your deployed Worker URL.");
+      }
+
+      const symbol = $("symbol").value;
+      const timeframe = $("timeframe").value;
+
+      const url = new URL("/test-signal", WORKER_URL);
+      url.searchParams.set("symbol", symbol);
+      url.searchParams.set("timeframe", timeframe);
+
+      const response = await fetch(url.toString(), {
+        headers: { "Accept": "application/json" }
+      });
+
+      const raw = await response.text();
+
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new Error(
+          `Worker returned non-JSON data (HTTP ${response.status}). ` +
+          raw.slice(0, 200)
+        );
+      }
+
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.message || `Worker error: HTTP ${response.status}`);
+      }
+
+      renderSignal(data);
+
+    } catch (error) {
+      $("status").textContent = `Could not load chart: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  // Initial chart sizing and first fetch.
+  window.addEventListener("resize", () => {
+    chart.timeScale().fitContent();
+  });
+
+  loadSignal();
+</script>
+</body>
+          </html>
