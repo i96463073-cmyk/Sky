@@ -581,9 +581,12 @@ class MainActivity : AppCompatActivity() {
         chartFrame.addView(chartLoader); chartFrame.addView(chartError)
 
         web.settings.apply {
-            javaScriptEnabled = true; domStorageEnabled = true
-            allowFileAccess = false; allowContentAccess = false
-            setSupportMultipleWindows(false); mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = true // ✅ FIXED: Allows loading local files
+            allowContentAccess = true // ✅ FIXED
+            setSupportMultipleWindows(false)
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
         web.setOnTouchListener { v, e ->
             when (e.actionMasked) {
@@ -607,7 +610,9 @@ class MainActivity : AppCompatActivity() {
             }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
         }
-        web.loadDataWithBaseURL("https://local.skyai/", buildChartHtml(), "text/html", "UTF-8", null)
+        
+        // ✅ FIXED: Base URL changed to Android asset folder
+        web.loadDataWithBaseURL("file:///android_asset/", buildChartHtml(), "text/html", "UTF-8", null)
     }
 
     private fun js(code: String) { if (pageReady) web.evaluateJavascript(code, null) else queued.add(code) }
