@@ -8,9 +8,14 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
@@ -83,6 +88,7 @@ class RingView(context: Context) : View(context) {
 
 class MainActivity : AppCompatActivity() {
 
+    // Views
     private lateinit var rootLayout: LinearLayout
     private lateinit var logoMark: TextView
     private lateinit var tvBrand: TextView
@@ -131,8 +137,9 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 5000L
+    private val POLL_MS = 4000L // Unified 4-second poll
 
+    // Theme Colors
     private val BG = Color.parseColor("#0B0E14")
     private val CARD = Color.parseColor("#131824")
     private val GREEN = Color.parseColor("#00E676")
@@ -145,7 +152,6 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val inFlight = AtomicBoolean(false)
-    private val priceInFlight = AtomicBoolean(false)
     private var polling = false
     private var hasData = false
     private var lastOkTime: String? = null
@@ -167,6 +173,12 @@ class MainActivity : AppCompatActivity() {
     private var pageReady = false
     private val queued = ArrayList<String>()
 
+    // State Persistence & Alerts
+    private lateinit var sharedPrefs: android.content.SharedPreferences
+    private var toneGenerator: ToneGenerator? = null
+    private var vibrator: Vibrator? = null
+    private var lastSignalIds: Set<String> = emptySet()
+
     private val pollRunnable = object : Runnable {
         override fun run() {
             if (!polling) return
@@ -174,31 +186,53 @@ class MainActivity : AppCompatActivity() {
             handler.postDelayed(this, POLL_MS)
         }
     }
-    private val analysisLoop = object : Runnable {
-        override fun run() {
-            if (!polling) return
-            loadChart()
-            handler.postDelayed(this, 30_000L)
-        }
-    }
-    private val priceLoop = object : Runnable {
-        override fun run() {
-            if (!polling) return
-            val sym = selectedSymbol
-            fetchPriceOnly(sym) { p ->
-                if (sym == selectedSymbol) {
-                    js("window.tick($p);")
-                    tvChartPrice.text = formatPrice(sym, p)
-                }
-            }
-            handler.postDelayed(this, 2_000L)
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Load saved state
+        sharedPrefs = getSharedPreferences("SkyAiPrefs", Context.MODE_PRIVATE)
+        selectedSymbol = sharedPrefs.getString("selectedSymbol", "XAUUSD") ?: "XAUUSD"
+        selectedTf = sharedPrefs.getString("selectedTf", "M15") ?: "M15"
+
+        bindViews()
+        setupWindow()
+        styleStatic()
+        buildTicker(FALLBACK_SYMBOLS)
+        buildTfChips()
+        setupChart()
+        updateChartHeader()
+
+        // Init Sound and Vibration
+        try {
+            toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+            vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        } catch (_: Exception) {}
+
+        applyBounce(btnRefresh); applyBounce(btnSend); applyBounce(tvCloseChat)
+        btnRefresh.setOnClickListener { fetchLive(manual = true) }
+        btnSend.setOnClickListener { sendChat() }
+        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE }
+        etInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) { sendChat(); true } else false
+        }
+
+        navHome.setOnClickListener { setNav(navHome); scrollMain.smoothScrollTo(0, 0) }
+        navSignals.setOnClickListener { setNav(navSignals); scrollMain.smoothScrollTo(0, signalsHeader.top) }
+        navNew.setOnClickListener { fetchLive(manual = true); scrollMain.smoothScrollTo(0, 0) }
+        navHistory.setOnClickListener { setNav(navHistory); scrollMain.smoothScrollTo(0, historyHeader.top) }
+        navProfile.setOnClickListener {
+            chatPanel.visibility = if (chatPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+
+        addEmptyText(pendingContainer, "Connecting to backend…")
+        addEmptyText(completedContainer, "Connecting to backend…")
+        tvNewsStatus.text = "No news data received from the backend yet."
+        updateSessionPanel()
+    }
+
+    private fun bindViews() {
         rootLayout = findViewById(R.id.rootLayout)
         logoMark = findViewById(R.id.logoMark)
         tvBrand = findViewById(R.id.tvBrand)
@@ -240,34 +274,6 @@ class MainActivity : AppCompatActivity() {
         navNew = findViewById(R.id.navNew)
         navHistory = findViewById(R.id.navHistory)
         navProfile = findViewById(R.id.navProfile)
-
-        setupWindow()
-        styleStatic()
-        buildTicker(FALLBACK_SYMBOLS)
-        buildTfChips()
-        setupChart()
-        updateChartHeader()
-
-        applyBounce(btnRefresh); applyBounce(btnSend); applyBounce(tvCloseChat)
-        btnRefresh.setOnClickListener { fetchLive(manual = true); loadChart() }
-        btnSend.setOnClickListener { sendChat() }
-        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE }
-        etInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEND) { sendChat(); true } else false
-        }
-
-        navHome.setOnClickListener { setNav(navHome); scrollMain.smoothScrollTo(0, 0) }
-        navSignals.setOnClickListener { setNav(navSignals); scrollMain.smoothScrollTo(0, signalsHeader.top) }
-        navNew.setOnClickListener { fetchLive(manual = true); loadChart(); scrollMain.smoothScrollTo(0, 0) }
-        navHistory.setOnClickListener { setNav(navHistory); scrollMain.smoothScrollTo(0, historyHeader.top) }
-        navProfile.setOnClickListener {
-            chatPanel.visibility = if (chatPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
-
-        addEmptyText(pendingContainer, "Connecting to backend…")
-        addEmptyText(completedContainer, "Connecting to backend…")
-        tvNewsStatus.text = "No news data received from the backend yet."
-        updateSessionPanel()
     }
 
     override fun onResume() {
@@ -275,7 +281,6 @@ class MainActivity : AppCompatActivity() {
         if (!polling) {
             polling = true
             handler.removeCallbacks(pollRunnable); handler.post(pollRunnable)
-            restartChartLoops()
         }
     }
 
@@ -288,6 +293,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         try { (web.parent as? ViewGroup)?.removeView(web); web.destroy() } catch (_: Exception) {}
+        toneGenerator?.release()
         super.onDestroy()
     }
 
@@ -406,6 +412,7 @@ class MainActivity : AppCompatActivity() {
         } finally { c.disconnect() }
     }
 
+    // Unified fetch that handles both ticker and signals
     private fun fetchLive(manual: Boolean = false) {
         if (!inFlight.compareAndSet(false, true)) return
         if (!hasData) setStatus(State.CONNECTING)
@@ -512,7 +519,12 @@ class MainActivity : AppCompatActivity() {
                 tv.postDelayed({ tv.setTextColor(Color.WHITE) }, 700)
             }
             if (!v.isNaN()) lastPrices[sym] = v
-            if (sym == selectedSymbol && !v.isNaN()) tvChartPrice.text = formatPrice(sym, v)
+            
+            // Send live tick directly to WebView
+            if (sym == selectedSymbol && !v.isNaN()) {
+                tvChartPrice.text = formatPrice(sym, v)
+                if (pageReady) web.evaluateJavascript("window.tick($v);", null)
+            }
         }
     }
 
@@ -525,7 +537,11 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginEnd = dp(6) }
             }
             applyBounce(c)
-            c.setOnClickListener { selectedTf = tf; updateChartHeader(); styleTfChips(); restartChartLoops() }
+            c.setOnClickListener { 
+                selectedTf = tf
+                sharedPrefs.edit().putString("selectedTf", selectedTf).apply()
+                updateChartHeader(); styleTfChips(); loadChart() 
+            }
             tfChips[tf] = c; tfContainer.addView(c)
         }
         styleTfChips()
@@ -547,9 +563,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectSymbol(sym: String) {
         selectedSymbol = sym.trim().uppercase(Locale.US).ifEmpty { "XAUUSD" }
+        sharedPrefs.edit().putString("selectedSymbol", selectedSymbol).apply()
         updateChartHeader(); styleSymbolChips()
         tvChartPrice.text = lastPrices[selectedSymbol]?.let { formatPrice(selectedSymbol, it) } ?: "—"
-        restartChartLoops()
+        loadChart()
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -568,8 +585,6 @@ class MainActivity : AppCompatActivity() {
             allowFileAccess = false; allowContentAccess = false
             setSupportMultipleWindows(false); mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
-        
-        // Let the chart pan/zoom without the page scrolling underneath
         web.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> v.parent.requestDisallowInterceptTouchEvent(true)
@@ -577,11 +592,11 @@ class MainActivity : AppCompatActivity() {
             }
             false
         }
-        
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageReady = true; queued.forEach { web.evaluateJavascript(it, null) }; queued.clear()
+                loadChart() // Load data once chart is ready
             }
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, e: WebResourceError?) {
                 if (request?.isForMainFrame == true) {
@@ -618,11 +633,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun restartChartLoops() {
-        handler.removeCallbacks(analysisLoop); handler.removeCallbacks(priceLoop)
-        if (polling) { handler.post(analysisLoop); handler.postDelayed(priceLoop, 1_500L) }
-    }
-
     private fun loadSignalData(symbol: String, timeframe: String, callback: (JSONObject?, String?) -> Unit) {
         thread {
             var connection: HttpURLConnection? = null
@@ -656,32 +666,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchPriceOnly(symbol: String, cb: (Double) -> Unit) {
-        if (!priceInFlight.compareAndSet(false, true)) return
-        thread {
-            var p = Double.NaN
-            try {
-                val r = httpGet("/api/live")
-                if (r.first in 200..299) p = JSONObject(r.second).optJSONObject("live_prices")?.num(symbol) ?: Double.NaN
-            } catch (_: Exception) {
-            } finally {
-                runOnUiThread {
-                    priceInFlight.set(false)
-                    if (!isFinishing && !isDestroyed && !p.isNaN()) {
-                        lastPrices[symbol] = p
-                        cb(p)
-                    }
-                }
-            }
-        }
-    }
-
     // ------------------------------------------------------------------ signals
 
     private fun renderSignals(pending: JSONArray, completed: JSONArray) {
         val sig = pending.toString() + "|" + completed.toString()
         if (sig == lastSignalsSig) return
         lastSignalsSig = sig
+
+        // Check for NEW signals and trigger alert
+        val currentIds = mutableSetOf<String>()
+        for (i in 0 until pending.length()) {
+            val id = pending.optJSONObject(i)?.str("id")
+            if (!id.isNullOrEmpty()) currentIds.add(id)
+        }
+        for (i in 0 until completed.length()) {
+            val id = completed.optJSONObject(i)?.str("id")
+            if (!id.isNullOrEmpty()) currentIds.add(id)
+        }
+        
+        if (lastSignalIds.isNotEmpty() && !lastSignalIds.containsAll(currentIds)) {
+            triggerAlert()
+        }
+        lastSignalIds = currentIds
 
         pendingContainer.removeAllViews(); completedContainer.removeAllViews()
 
@@ -702,6 +708,18 @@ class MainActivity : AppCompatActivity() {
 
         if (completed.length() == 0) addEmptyText(completedContainer, "No signal history yet.")
         else for (i in 0 until completed.length()) completed.optJSONObject(i)?.let { addSignalCard(completedContainer, it, false, i) }
+    }
+
+    private fun triggerAlert() {
+        try {
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP2, 200)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(200)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun checkLevels(dir: String, e: Double, sl: Double, tp: Double): Pair<Double?, String?> {
@@ -753,7 +771,6 @@ class MainActivity : AppCompatActivity() {
         ).apply { cornerRadius = dpf(16f); setStroke(dp(1), ColorUtils.setAlphaComponent(accent, 0x70)) }
         card.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(12) }
 
-        // ---- top row: icon, symbol + pill, confidence ring
         val top = row().apply { gravity = Gravity.CENTER_VERTICAL }
         val icon = makeText(if (direction == "SELL") "↘" else "↗", 22f, accent, true).apply {
             gravity = Gravity.CENTER
@@ -784,7 +801,6 @@ class MainActivity : AppCompatActivity() {
         if (showRing) top.addView(ring, LinearLayout.LayoutParams(dp(54), dp(54)))
         card.addView(top)
 
-        // ---- timeframe / type chips
         val meta = ArrayList<String>()
         if (tf.isNotEmpty()) meta.add("Timeframe: $tf")
         if (type.isNotEmpty()) meta.add("Type: $type")
@@ -797,7 +813,6 @@ class MainActivity : AppCompatActivity() {
             card.addView(m)
         }
 
-        // ---- price grid
         val tpParts = ArrayList<String>()
         for (v in listOf(tp, tp2, tp3)) if (!v.isNaN() && v != 0.0) tpParts.add(formatPrice(symbol, v))
         val grid = row().apply { setPadding(0, dp(12), 0, 0) }
@@ -806,7 +821,6 @@ class MainActivity : AppCompatActivity() {
         grid.addView(priceBox("Take Profit", if (tpParts.isEmpty()) "—" else tpParts.joinToString(" / "), GREEN, 1.7f))
         card.addView(grid)
 
-        // ---- confluence checklist
         val conf = s.optJSONArray("confluence")
         if (conf != null && conf.length() > 0) {
             card.addView(makeText("Confluence", 11f, MUTED).apply { setPadding(0, dp(12), 0, dp(4)) })
@@ -817,7 +831,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ---- bottom row: R:R / expires, pips box, chart button
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, 0) }
         val left = col()
         val check = checkLevels(direction, entry, sl, tp)
