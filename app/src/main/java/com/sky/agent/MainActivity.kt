@@ -189,7 +189,9 @@ class MainActivity : AppCompatActivity() {
 
     private val TIMEFRAMES = listOf("M5", "M15", "H1", "H4")
     private val TF_LABELS = mapOf("M5" to "5m", "M15" to "15m", "H1" to "1h", "H4" to "4h")
-    private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD")
+    
+    // ✅ FIXED: Matches exactly what your backend supports
+    private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD")
 
     private var selectedSymbol = "XAUUSD"
     private var selectedTf = "M15"
@@ -385,7 +387,6 @@ class MainActivity : AppCompatActivity() {
         btnSend.setTextColor(Color.BLACK)
     }
 
-    // ---------- SEPARATE SCREENS ----------
     private fun showTab(t: Tab) {
         if (t == Tab.CHART) {
             chartSection.visibility = View.VISIBLE
@@ -481,7 +482,6 @@ class MainActivity : AppCompatActivity() {
         return when (r) { "5M" -> "M5"; "15M" -> "M15"; "1H" -> "H1"; "4H" -> "H4"; else -> null }
     }
 
-    // ---------- PIPS ----------
     private fun pipsOf(sym: String, dir: String, from: Double, to: Double): Double {
         val diff = if (dir == "SELL") from - to else to - from
         return diff / pipSize(sym)
@@ -549,7 +549,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- NETWORK ----------
     private fun httpGet(path: String): Pair<Int, String> {
         val c = URL(BACKEND_BASE + path).openConnection() as HttpURLConnection
         try {
@@ -625,7 +624,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- TICKER ----------
     private fun buildTicker(keys: List<String>) {
         tickerContainer.removeAllViews(); priceViews.clear(); chipViews.clear()
         for (sym in keys) {
@@ -763,7 +761,6 @@ class MainActivity : AppCompatActivity() {
         showTab(Tab.CHART)
     }
 
-    // ---------- CHART ----------
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun setupChart() {
         web = WebView(this).apply { setBackgroundColor(BG) }
@@ -870,30 +867,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- SIGNALS + HISTORY ----------
     private fun renderSignals(pending: JSONArray, completed: JSONArray) {
         val sig = pending.toString() + "|" + completed.toString()
         if (sig == lastSignalsSig) return
         lastSignalsSig = sig
 
-        // --- NEW: Filter out old signals (older than 12 hours) ---
+        // Filter out old signals (older than 12 hours)
         val validPending = JSONArray()
         val now = System.currentTimeMillis()
-        
         for (i in 0 until pending.length()) {
             val o = pending.optJSONObject(i) ?: continue
             val timeStr = o.str("created_at").ifEmpty { o.str("time").ifEmpty { o.str("timestamp") } }
             val date = parseIso(timeStr)
-            
             if (date != null) {
                 val ageMs = now - date.time
-                if (ageMs > 12 * 60 * 60 * 1000L) {
-                    continue // Skip this old signal
-                }
+                if (ageMs > 12 * 60 * 60 * 1000L) continue // Skip old
             }
             validPending.put(o)
         }
-        // ----------------------------------------------------------
 
         val ids = mutableSetOf<String>()
         for (i in 0 until validPending.length()) {
@@ -1010,7 +1001,6 @@ class MainActivity : AppCompatActivity() {
         ).apply { cornerRadius = dpf(14f); setStroke(dp(1), ColorUtils.setAlphaComponent(accent, 0x60)) }
         card.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(12) }
 
-        // ---- top row: confidence ring | symbol info | pips ----
         val top = row()
         top.gravity = Gravity.CENTER_VERTICAL
 
@@ -1019,7 +1009,6 @@ class MainActivity : AppCompatActivity() {
         val ring = RingView(this)
         ring.ringColor = accent
         
-        // --- NEW: Better fallback for missing confidence ---
         if (confidence != null) { 
             ring.label = "$confidence%"
             ring.setPercent(confidence) 
@@ -1030,7 +1019,6 @@ class MainActivity : AppCompatActivity() {
             ring.label = "—" 
             ring.setPercent(0) 
         }
-        // ----------------------------------------------------
         
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
         ringCol.addView(makeText("Confidence", 9f, MUTED).apply { gravity = Gravity.CENTER })
@@ -1067,7 +1055,6 @@ class MainActivity : AppCompatActivity() {
         top.addView(pipCol)
         card.addView(top)
 
-        // ---- levels ----
         val rr = if (tps.isNotEmpty()) checkLevels(direction, entry, sl, tps[0]).first else null
         val row1 = row().apply { setPadding(0, dp(12), 0, 0) }
         row1.addView(priceBox("Entry", formatPrice(symbol, entry), Color.WHITE, 1f))
@@ -1082,7 +1069,6 @@ class MainActivity : AppCompatActivity() {
             card.addView(row2)
         }
 
-        // ---- confluence ----
         val conf = s.optJSONArray("confluence")
         if (conf != null && conf.length() > 0) {
             val items = ArrayList<String>()
@@ -1094,7 +1080,6 @@ class MainActivity : AppCompatActivity() {
             if (items.isNotEmpty()) card.addView(makeText(items.joinToString("    "), 10f, Color.parseColor("#C5CBD8")).apply { setPadding(0, dp(10), 0, 0) })
         }
 
-        // ---- bottom: status + view chart ----
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
         val statusText = if (isPending) "● Active" else if (result.isNotEmpty()) "● $result" else "● Closed"
         val statusColor = if (isPending) AMBER else when (result) { "WIN" -> GREEN; "LOSS" -> RED; else -> MUTED }
@@ -1149,7 +1134,6 @@ class MainActivity : AppCompatActivity() {
         container.addView(tv)
     }
 
-    // ---------- MARKET ----------
     private fun renderNews(json: JSONObject) {
         val news = json.optJSONArray("news")
         newsContainer.removeAllViews()
@@ -1184,7 +1168,6 @@ class MainActivity : AppCompatActivity() {
         tvSession.text = "Active sessions: " + (if (active.isEmpty()) "none" else active.joinToString(", ")) + overlap + "\nUTC now: $utc"
     }
 
-    // ---------- CHAT ----------
     private fun sendChat() {
         val text = etInput.text.toString().trim()
         if (text.isEmpty()) return
