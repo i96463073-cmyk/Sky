@@ -583,8 +583,10 @@ class MainActivity : AppCompatActivity() {
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            allowFileAccess = true // ✅ FIXED: Allows loading local files
-            allowContentAccess = true // ✅ FIXED
+            allowFileAccess = true 
+            allowContentAccess = true 
+            allowFileAccessFromFileURLs = true 
+            allowUniversalAccessFromFileURLs = true 
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
@@ -611,7 +613,6 @@ class MainActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
         }
         
-        // ✅ FIXED: Base URL changed to Android asset folder
         web.loadDataWithBaseURL("file:///android_asset/", buildChartHtml(), "text/html", "UTF-8", null)
     }
 
