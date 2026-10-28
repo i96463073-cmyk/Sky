@@ -114,119 +114,124 @@
         android:indeterminate="true"
         android:visibility="gone" />
 
-    <!-- MAIN CONTENT -->
+    <!-- ================= SCREEN 1: CHARTS (FULL SCREEN) ================= -->
+    <LinearLayout
+        android:id="@+id/chartSection"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/chartCard"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvChartTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="XAUUSD"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvChartSub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Gold / US Dollar · 15m"
+                        android:textColor="#8A93A6"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvChartPrice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="—"
+                    android:textColor="#00E676"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnRefresh"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:padding="6dp"
+                    android:text="↻"
+                    android:textColor="#B388FF"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/tfContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/tvTradeInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:textColor="#B388FF"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <!-- WebView fills the rest of the screen -->
+            <FrameLayout
+                android:id="@+id/chartFrame"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ================= SCREENS 2, 3, 4 (SCROLLABLE) ================= -->
     <ScrollView
         android:id="@+id/scrollMain"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
+        android:fillViewport="true"
+        android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="12dp">
-
-            <!-- ================= SCREEN 1: CHARTS ================= -->
-            <LinearLayout
-                android:id="@+id/chartSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout
-                    android:id="@+id/chartCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="12dp">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/tvChartTitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="XAUUSD"
-                                android:textColor="#FFFFFF"
-                                android:textSize="20sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/tvChartSub"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Gold / US Dollar · 15m"
-                                android:textColor="#8A93A6"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <TextView
-                            android:id="@+id/tvChartPrice"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="—"
-                            android:textColor="#00E676"
-                            android:textSize="20sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/btnRefresh"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="12dp"
-                            android:padding="6dp"
-                            android:text="↻"
-                            android:textColor="#B388FF"
-                            android:textSize="22sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                    <HorizontalScrollView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:paddingBottom="8dp"
-                        android:scrollbars="none">
-
-                        <LinearLayout
-                            android:id="@+id/tfContainer"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal" />
-                    </HorizontalScrollView>
-
-                    <TextView
-                        android:id="@+id/tvTradeInfo"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="12dp"
-                        android:paddingTop="2dp"
-                        android:paddingEnd="12dp"
-                        android:paddingBottom="8dp"
-                        android:textColor="#B388FF"
-                        android:textSize="11sp"
-                        android:visibility="gone" />
-
-                    <FrameLayout
-                        android:id="@+id/chartFrame"
-                        android:layout_width="match_parent"
-                        android:layout_height="520dp"
-                        android:layout_marginTop="4dp" />
-                </LinearLayout>
-            </LinearLayout>
 
             <!-- ================= SCREEN 2: SIGNALS ================= -->
             <LinearLayout
