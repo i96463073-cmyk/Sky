@@ -1,5 +1,6 @@
 package com.sky.agent
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
@@ -45,6 +46,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import com.skyai.app.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -57,38 +59,53 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
-import kotlin.math.abs
 
-/** Circular confidence gauge for the signal cards. */
+/** Animated circular confidence gauge for the signal cards. */
 class RingView(context: Context) : View(context) {
-    var percent = 0
     var ringColor = Color.GREEN
     var label = ""
+    private var shown = 0f
     private val d = context.resources.displayMetrics.density
     private val trackP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 4 * d; color = Color.parseColor("#2A3449")
+        style = Paint.Style.STROKE; strokeWidth = 5 * d; color = Color.parseColor("#2A3449")
+    }
+    private val glowP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 9 * d; strokeCap = Paint.Cap.ROUND
     }
     private val arcP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 4 * d; strokeCap = Paint.Cap.ROUND
+        style = Paint.Style.STROKE; strokeWidth = 5 * d; strokeCap = Paint.Cap.ROUND
     }
     private val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; textSize = 13 * d; color = Color.WHITE
+        textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; textSize = 15 * d; color = Color.WHITE
     }
     private val r = RectF()
-    
+
+    fun setPercent(p: Int, animate: Boolean = true) {
+        val target = p.coerceIn(0, 100).toFloat()
+        if (!animate) { shown = target; invalidate(); return }
+        ValueAnimator.ofFloat(0f, target).apply {
+            duration = 800
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { shown = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
     override fun onDraw(c: Canvas) {
-        val pad = 4 * d
+        val pad = 8 * d
         r.set(pad, pad, width - pad, height - pad)
         c.drawOval(r, trackP)
+        val sweep = 360f * shown / 100f
+        glowP.color = ColorUtils.setAlphaComponent(ringColor, 0x33)
+        c.drawArc(r, -90f, sweep, false, glowP)
         arcP.color = ringColor
-        c.drawArc(r, -90f, 360f * percent.coerceIn(0, 100) / 100f, false, arcP)
+        c.drawArc(r, -90f, sweep, false, arcP)
         c.drawText(label, width / 2f, height / 2f - (textP.descent() + textP.ascent()) / 2f, textP)
     }
 }
 
 class MainActivity : AppCompatActivity() {
 
-    // Views
     private lateinit var rootLayout: LinearLayout
     private lateinit var logoMark: TextView
     private lateinit var tvBrand: TextView
@@ -97,6 +114,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUpdated: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var scrollMain: ScrollView
+
+    private lateinit var chartSection: LinearLayout
+    private lateinit var signalsSection: LinearLayout
+    private lateinit var historySection: LinearLayout
+    private lateinit var marketSection: LinearLayout
+
     private lateinit var chartCard: LinearLayout
     private lateinit var tvChartTitle: TextView
     private lateinit var tvChartSub: TextView
@@ -104,12 +127,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRefresh: TextView
     private lateinit var tfContainer: LinearLayout
     private lateinit var chartFrame: FrameLayout
-    private lateinit var signalsHeader: View
+    private lateinit var tvTradeInfo: TextView
     private lateinit var tvLivePill: TextView
+    private lateinit var filterContainer: LinearLayout
     private lateinit var statsCard: LinearLayout
     private lateinit var pendingContainer: LinearLayout
     private lateinit var completedContainer: LinearLayout
-    private lateinit var historyHeader: View
     private lateinit var newsContainer: LinearLayout
     private lateinit var tvStatus: TextView
     private lateinit var tvSession: TextView
@@ -118,6 +141,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCompletedCount: TextView
     private lateinit var tvWins: TextView
     private lateinit var tvLosses: TextView
+    private lateinit var tvTotalPips: TextView
     private lateinit var tvWinRate: TextView
     private lateinit var chatPanel: LinearLayout
     private lateinit var chatScroll: ScrollView
@@ -137,9 +161,8 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 4000L // Unified 4-second poll
+    private val POLL_MS = 4000L
 
-    // Theme Colors
     private val BG = Color.parseColor("#0B0E14")
     private val CARD = Color.parseColor("#131824")
     private val GREEN = Color.parseColor("#00E676")
@@ -154,18 +177,20 @@ class MainActivity : AppCompatActivity() {
     private val inFlight = AtomicBoolean(false)
     private var polling = false
     private var hasData = false
+    private var pollCount = 0
     private var lastOkTime: String? = null
     private var lastSignalsSig: String? = null
 
     private val priceViews = LinkedHashMap<String, TextView>()
     private val chipViews = LinkedHashMap<String, LinearLayout>()
     private val tfChips = LinkedHashMap<String, TextView>()
+    private val filterChips = LinkedHashMap<String, TextView>()
     private val lastPrices = HashMap<String, Double>()
     private val chartCache = HashMap<String, JSONObject>()
 
-    private val TIMEFRAMES = listOf("M5", "M15", "H1")
-    private val TF_LABELS = mapOf("M5" to "5m", "M15" to "15m", "H1" to "1h")
-    private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD")
+    private val TIMEFRAMES = listOf("M5", "M15", "H1", "H4")
+    private val TF_LABELS = mapOf("M5" to "5m", "M15" to "15m", "H1" to "1h", "H4" to "4h")
+    private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD")
 
     private var selectedSymbol = "XAUUSD"
     private var selectedTf = "M15"
@@ -173,16 +198,31 @@ class MainActivity : AppCompatActivity() {
     private var pageReady = false
     private val queued = ArrayList<String>()
 
-    // State Persistence & Alerts
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private var toneGenerator: ToneGenerator? = null
     private var vibrator: Vibrator? = null
     private var lastSignalIds: Set<String> = emptySet()
+    private var signalsSeen = false
+
+    private var allPending = JSONArray()
+    private var allCompleted = JSONArray()
+    private var dirFilter = "ALL"
+
+    private var activeTrade: JSONObject? = null
+    private var activeTradeSym = ""
+
+    private class LivePip(val tv: TextView, val sym: String, val dir: String, val entry: Double)
+    private data class PipResult(val pips: Double, val estimated: Boolean)
+    private val livePips = ArrayList<LivePip>()
+
+    private enum class Tab { CHART, SIGNALS, HISTORY, MARKET }
 
     private val pollRunnable = object : Runnable {
         override fun run() {
             if (!polling) return
             fetchLive()
+            pollCount++
+            if (pollCount % 8 == 0 && chartSection.visibility == View.VISIBLE) loadChart()
             handler.postDelayed(this, POLL_MS)
         }
     }
@@ -191,7 +231,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Load saved state
         sharedPrefs = getSharedPreferences("SkyAiPrefs", Context.MODE_PRIVATE)
         selectedSymbol = sharedPrefs.getString("selectedSymbol", "XAUUSD") ?: "XAUUSD"
         selectedTf = sharedPrefs.getString("selectedTf", "M15") ?: "M15"
@@ -201,35 +240,43 @@ class MainActivity : AppCompatActivity() {
         styleStatic()
         buildTicker(FALLBACK_SYMBOLS)
         buildTfChips()
+        buildFilterChips()
         setupChart()
         updateChartHeader()
 
-        // Init Sound and Vibration
         try {
             toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
             vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         } catch (_: Exception) {}
 
         applyBounce(btnRefresh); applyBounce(btnSend); applyBounce(tvCloseChat)
-        btnRefresh.setOnClickListener { fetchLive(manual = true) }
+        btnRefresh.setOnClickListener { fetchLive(manual = true); loadChart() }
         btnSend.setOnClickListener { sendChat() }
-        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE }
+        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE; navProfile.setTextColor(MUTED) }
         etInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendChat(); true } else false
         }
+        tvTradeInfo.setOnClickListener {
+            activeTrade = null
+            updateTradeInfo()
+            js("window.setTrade(null);")
+        }
 
-        navHome.setOnClickListener { setNav(navHome); scrollMain.smoothScrollTo(0, 0) }
-        navSignals.setOnClickListener { setNav(navSignals); scrollMain.smoothScrollTo(0, signalsHeader.top) }
-        navNew.setOnClickListener { fetchLive(manual = true); scrollMain.smoothScrollTo(0, 0) }
-        navHistory.setOnClickListener { setNav(navHistory); scrollMain.smoothScrollTo(0, historyHeader.top) }
+        navHome.setOnClickListener { showTab(Tab.CHART) }
+        navSignals.setOnClickListener { showTab(Tab.SIGNALS) }
+        navHistory.setOnClickListener { showTab(Tab.HISTORY) }
+        navNew.setOnClickListener { showTab(Tab.MARKET) }
         navProfile.setOnClickListener {
-            chatPanel.visibility = if (chatPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            val open = chatPanel.visibility != View.VISIBLE
+            chatPanel.visibility = if (open) View.VISIBLE else View.GONE
+            navProfile.setTextColor(if (open) PURPLE_L else MUTED)
         }
 
         addEmptyText(pendingContainer, "Connecting to backend…")
         addEmptyText(completedContainer, "Connecting to backend…")
         tvNewsStatus.text = "No news data received from the backend yet."
         updateSessionPanel()
+        showTab(Tab.CHART)
     }
 
     private fun bindViews() {
@@ -241,6 +288,12 @@ class MainActivity : AppCompatActivity() {
         tvUpdated = findViewById(R.id.tvUpdated)
         progressBar = findViewById(R.id.progressBar)
         scrollMain = findViewById(R.id.scrollMain)
+
+        chartSection = findViewById(R.id.chartSection)
+        signalsSection = findViewById(R.id.signalsSection)
+        historySection = findViewById(R.id.historySection)
+        marketSection = findViewById(R.id.marketSection)
+
         chartCard = findViewById(R.id.chartCard)
         tvChartTitle = findViewById(R.id.tvChartTitle)
         tvChartSub = findViewById(R.id.tvChartSub)
@@ -248,12 +301,12 @@ class MainActivity : AppCompatActivity() {
         btnRefresh = findViewById(R.id.btnRefresh)
         tfContainer = findViewById(R.id.tfContainer)
         chartFrame = findViewById(R.id.chartFrame)
-        signalsHeader = findViewById(R.id.signalsHeader)
+        tvTradeInfo = findViewById(R.id.tvTradeInfo)
         tvLivePill = findViewById(R.id.tvLivePill)
+        filterContainer = findViewById(R.id.filterContainer)
         statsCard = findViewById(R.id.statsCard)
         pendingContainer = findViewById(R.id.pendingContainer)
         completedContainer = findViewById(R.id.completedContainer)
-        historyHeader = findViewById(R.id.historyHeader)
         newsContainer = findViewById(R.id.newsContainer)
         tvStatus = findViewById(R.id.tvStatus)
         tvSession = findViewById(R.id.tvSession)
@@ -262,6 +315,7 @@ class MainActivity : AppCompatActivity() {
         tvCompletedCount = findViewById(R.id.tvCompletedCount)
         tvWins = findViewById(R.id.tvWins)
         tvLosses = findViewById(R.id.tvLosses)
+        tvTotalPips = findViewById(R.id.tvTotalPips)
         tvWinRate = findViewById(R.id.tvWinRate)
         chatPanel = findViewById(R.id.chatPanel)
         chatScroll = findViewById(R.id.chatScroll)
@@ -317,11 +371,11 @@ class MainActivity : AppCompatActivity() {
         logoMark.background = GradientDrawable(
             GradientDrawable.Orientation.TL_BR, intArrayOf(PURPLE_L, Color.parseColor("#5B2BD9"))
         ).apply { cornerRadius = dpf(10f) }
-        
+
         val sp = SpannableString("SMC SIGNALS")
         sp.setSpan(ForegroundColorSpan(PURPLE_L), 4, 11, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         tvBrand.text = sp
-        
+
         statusPill.background = roundedBg(ColorUtils.setAlphaComponent(PURPLE, 0x18), dpf(14f), ColorUtils.setAlphaComponent(PURPLE_L, 0x80))
         chartCard.background = roundedBg(CARD, dpf(16f), STROKE)
         statsCard.background = roundedBg(CARD, dpf(14f), STROKE)
@@ -332,8 +386,23 @@ class MainActivity : AppCompatActivity() {
         btnSend.setTextColor(Color.BLACK)
     }
 
+    // ---------- SEPARATE SCREENS ----------
+    private fun showTab(t: Tab) {
+        chartSection.visibility = if (t == Tab.CHART) View.VISIBLE else View.GONE
+        signalsSection.visibility = if (t == Tab.SIGNALS) View.VISIBLE else View.GONE
+        historySection.visibility = if (t == Tab.HISTORY) View.VISIBLE else View.GONE
+        marketSection.visibility = if (t == Tab.MARKET) View.VISIBLE else View.GONE
+        setNav(when (t) {
+            Tab.CHART -> navHome
+            Tab.SIGNALS -> navSignals
+            Tab.HISTORY -> navHistory
+            Tab.MARKET -> navNew
+        })
+        scrollMain.post { scrollMain.scrollTo(0, 0) }
+    }
+
     private fun setNav(active: TextView) {
-        listOf(navHome, navSignals, navNew, navHistory, navProfile).forEach {
+        listOf(navHome, navSignals, navHistory, navNew).forEach {
             it.setTextColor(if (it === active) PURPLE_L else MUTED)
         }
     }
@@ -398,8 +467,82 @@ class MainActivity : AppCompatActivity() {
         else -> 0.0001
     }
 
-    // ------------------------------------------------------------------ network
+    private fun tfKey(raw: String): String? {
+        val r = raw.trim().uppercase(Locale.US)
+        if (r in TIMEFRAMES) return r
+        return when (r) { "5M" -> "M5"; "15M" -> "M15"; "1H" -> "H1"; "4H" -> "H4"; else -> null }
+    }
 
+    // ---------- PIPS ----------
+    private fun pipsOf(sym: String, dir: String, from: Double, to: Double): Double {
+        val diff = if (dir == "SELL") from - to else to - from
+        return diff / pipSize(sym)
+    }
+
+    private fun fmtPips(p: Double): String = String.format(Locale.US, "%+.1f", p)
+
+    private fun slOf(s: JSONObject): Double {
+        val a = s.num("stop_loss")
+        return if (a.isNaN()) s.num("sl") else a
+    }
+
+    private fun JSONObject.tps(): List<Double> {
+        val out = ArrayList<Double>()
+        val a = optJSONArray("take_profit") ?: optJSONArray("take_profits") ?: optJSONArray("targets")
+        if (a != null) {
+            for (i in 0 until a.length()) { val v = a.optDouble(i, Double.NaN); if (!v.isNaN()) out.add(v) }
+        } else {
+            val single = num("take_profit")
+            if (!single.isNaN()) out.add(single)
+            for (k in listOf("tp1", "tp2", "tp3")) {
+                val v = num(k)
+                if (!v.isNaN() && !out.contains(v)) out.add(v)
+            }
+        }
+        return out
+    }
+
+    /** Pips achieved by a closed signal. Uses backend pips/exit price when present, otherwise estimates from levels. */
+    private fun pipsForSignal(s: JSONObject): PipResult? {
+        val sym = s.str("symbol").uppercase(Locale.US)
+        val dir = s.str("direction").uppercase(Locale.US)
+        val result = s.str("result").uppercase(Locale.US)
+        val entry = s.num("entry")
+        for (k in listOf("pips", "pips_achieved", "pnl_pips", "profit_pips")) {
+            val v = s.num(k)
+            if (!v.isNaN()) return PipResult(v, false)
+        }
+        if (entry.isNaN()) return null
+        for (k in listOf("exit_price", "close_price", "closed_price", "exit")) {
+            val v = s.num(k)
+            if (!v.isNaN()) return PipResult(pipsOf(sym, dir, entry, v), false)
+        }
+        val tps = s.tps()
+        return when (result) {
+            "WIN" -> {
+                val hit = s.optInt("tp_hit", 0)
+                val tp = (if (hit in 1..tps.size) tps[hit - 1] else tps.firstOrNull()) ?: return null
+                PipResult(pipsOf(sym, dir, entry, tp), true)
+            }
+            "LOSS" -> {
+                val sl = slOf(s)
+                if (sl.isNaN()) null else PipResult(pipsOf(sym, dir, entry, sl), true)
+            }
+            else -> null
+        }
+    }
+
+    private fun refreshLivePips() {
+        for (p in livePips) {
+            val px = lastPrices[p.sym]
+            if (px == null || p.entry.isNaN()) { p.tv.text = "—"; continue }
+            val v = pipsOf(p.sym, p.dir, p.entry, px)
+            p.tv.text = fmtPips(v)
+            p.tv.setTextColor(if (v >= 0) GREEN else RED)
+        }
+    }
+
+    // ---------- NETWORK ----------
     private fun httpGet(path: String): Pair<Int, String> {
         val c = URL(BACKEND_BASE + path).openConnection() as HttpURLConnection
         try {
@@ -412,7 +555,6 @@ class MainActivity : AppCompatActivity() {
         } finally { c.disconnect() }
     }
 
-    // Unified fetch that handles both ticker and signals
     private fun fetchLive(manual: Boolean = false) {
         if (!inFlight.compareAndSet(false, true)) return
         if (!hasData) setStatus(State.CONNECTING)
@@ -462,6 +604,7 @@ class MainActivity : AppCompatActivity() {
         if (!hasData) {
             pendingContainer.removeAllViews(); completedContainer.removeAllViews()
             addEmptyText(pendingContainer, msg)
+            addEmptyText(completedContainer, msg)
         }
     }
 
@@ -475,8 +618,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ------------------------------------------------------------------ market chips
-
+    // ---------- TICKER ----------
     private fun buildTicker(keys: List<String>) {
         tickerContainer.removeAllViews(); priceViews.clear(); chipViews.clear()
         for (sym in keys) {
@@ -519,16 +661,14 @@ class MainActivity : AppCompatActivity() {
                 tv.postDelayed({ tv.setTextColor(Color.WHITE) }, 700)
             }
             if (!v.isNaN()) lastPrices[sym] = v
-            
-            // Send live tick directly to WebView
+
             if (sym == selectedSymbol && !v.isNaN()) {
                 tvChartPrice.text = formatPrice(sym, v)
                 if (pageReady) web.evaluateJavascript("window.tick($v);", null)
             }
         }
+        refreshLivePips()
     }
-
-    // ------------------------------------------------------------------ chart (inline WebView)
 
     private fun buildTfChips() {
         for (tf in TIMEFRAMES) {
@@ -537,10 +677,10 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginEnd = dp(6) }
             }
             applyBounce(c)
-            c.setOnClickListener { 
+            c.setOnClickListener {
                 selectedTf = tf
                 sharedPrefs.edit().putString("selectedTf", selectedTf).apply()
-                updateChartHeader(); styleTfChips(); loadChart() 
+                updateChartHeader(); styleTfChips(); loadChart()
             }
             tfChips[tf] = c; tfContainer.addView(c)
         }
@@ -556,19 +696,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun buildFilterChips() {
+        for (f in listOf("ALL", "BUY", "SELL")) {
+            val c = makeText(f, 12f, Color.WHITE, true).apply {
+                setPadding(dp(18), dp(7), dp(18), dp(7))
+                layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginEnd = dp(8) }
+            }
+            applyBounce(c)
+            c.setOnClickListener { dirFilter = f; styleFilterChips(); renderLists() }
+            filterChips[f] = c; filterContainer.addView(c)
+        }
+        styleFilterChips()
+    }
+
+    private fun styleFilterChips() {
+        filterChips.forEach { (n, c) ->
+            val on = n == dirFilter
+            val tint = when (n) { "BUY" -> GREEN; "SELL" -> RED; else -> PURPLE }
+            c.setTextColor(if (on) Color.WHITE else MUTED)
+            c.background = if (on) roundedBg(ColorUtils.setAlphaComponent(tint, 0x55), dpf(14f), tint)
+            else roundedBg(Color.TRANSPARENT, dpf(14f), STROKE)
+        }
+    }
+
     private fun updateChartHeader() {
         tvChartTitle.text = selectedSymbol
         tvChartSub.text = pairName(selectedSymbol) + " · " + (TF_LABELS[selectedTf] ?: selectedTf)
     }
 
+    private fun updateTradeInfo() {
+        val t = activeTrade
+        if (t != null && activeTradeSym == selectedSymbol) {
+            tvTradeInfo.text = "Showing ${t.optString("direction")} setup on $activeTradeSym · tap to clear"
+            tvTradeInfo.visibility = View.VISIBLE
+        } else tvTradeInfo.visibility = View.GONE
+    }
+
     private fun selectSymbol(sym: String) {
         selectedSymbol = sym.trim().uppercase(Locale.US).ifEmpty { "XAUUSD" }
         sharedPrefs.edit().putString("selectedSymbol", selectedSymbol).apply()
-        updateChartHeader(); styleSymbolChips()
+        updateChartHeader(); styleSymbolChips(); updateTradeInfo()
         tvChartPrice.text = lastPrices[selectedSymbol]?.let { formatPrice(selectedSymbol, it) } ?: "—"
         loadChart()
     }
 
+    /** Opens the Charts screen on the signal's symbol and draws its Entry / SL / TP levels. */
+    private fun openChartFor(symbol: String, direction: String, entry: Double, sl: Double, tps: List<Double>, tf: String) {
+        val t = JSONObject().put("direction", direction)
+        if (!entry.isNaN()) t.put("entry", entry)
+        if (!sl.isNaN()) t.put("stop_loss", sl)
+        t.put("tps", JSONArray(tps))
+        activeTrade = t
+        activeTradeSym = symbol
+        tfKey(tf)?.let {
+            selectedTf = it
+            sharedPrefs.edit().putString("selectedTf", it).apply()
+            styleTfChips()
+        }
+        selectSymbol(symbol)
+        showTab(Tab.CHART)
+    }
+
+    // ---------- CHART ----------
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun setupChart() {
         web = WebView(this).apply { setBackgroundColor(BG) }
@@ -583,10 +772,10 @@ class MainActivity : AppCompatActivity() {
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            allowFileAccess = true 
-            allowContentAccess = true 
-            allowFileAccessFromFileURLs = true 
-            allowUniversalAccessFromFileURLs = true 
+            allowFileAccess = true
+            allowContentAccess = true
+            allowFileAccessFromFileURLs = true
+            allowUniversalAccessFromFileURLs = true
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
@@ -601,7 +790,7 @@ class MainActivity : AppCompatActivity() {
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageReady = true; queued.forEach { web.evaluateJavascript(it, null) }; queued.clear()
-                loadChart() // Load data once chart is ready
+                loadChart()
             }
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, e: WebResourceError?) {
                 if (request?.isForMainFrame == true) {
@@ -612,14 +801,17 @@ class MainActivity : AppCompatActivity() {
             }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
         }
-        
+
         web.loadDataWithBaseURL("file:///android_asset/", buildChartHtml(), "text/html", "UTF-8", null)
     }
 
     private fun js(code: String) { if (pageReady) web.evaluateJavascript(code, null) else queued.add(code) }
 
-    private fun render(json: JSONObject, key: String) =
-        js("window.renderSignal(JSON.parse(${JSONObject.quote(json.toString())}), ${JSONObject.quote(key)});")
+    private fun render(json: JSONObject, key: String) {
+        val t = activeTrade
+        val trade = if (t != null && activeTradeSym == selectedSymbol) t.toString() else "null"
+        js("window.renderSignal(JSON.parse(${JSONObject.quote(json.toString())}), ${JSONObject.quote(key)}); window.setTrade($trade);")
+    }
 
     private fun loadChart() {
         val key = "$selectedSymbol|$selectedTf"
@@ -672,48 +864,61 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ------------------------------------------------------------------ signals
-
+    // ---------- SIGNALS + HISTORY ----------
     private fun renderSignals(pending: JSONArray, completed: JSONArray) {
         val sig = pending.toString() + "|" + completed.toString()
         if (sig == lastSignalsSig) return
         lastSignalsSig = sig
 
-        // Check for NEW signals and trigger alert
-        val currentIds = mutableSetOf<String>()
+        val ids = mutableSetOf<String>()
         for (i in 0 until pending.length()) {
             val id = pending.optJSONObject(i)?.str("id")
-            if (!id.isNullOrEmpty()) currentIds.add(id)
+            if (!id.isNullOrEmpty()) ids.add(id)
         }
-        for (i in 0 until completed.length()) {
-            val id = completed.optJSONObject(i)?.str("id")
-            if (!id.isNullOrEmpty()) currentIds.add(id)
-        }
-        
-        if (lastSignalIds.isNotEmpty() && !lastSignalIds.containsAll(currentIds)) {
-            triggerAlert()
-        }
-        lastSignalIds = currentIds
+        if (signalsSeen && !lastSignalIds.containsAll(ids)) triggerAlert()
+        signalsSeen = true
+        lastSignalIds = ids
 
-        pendingContainer.removeAllViews(); completedContainer.removeAllViews()
-
-        var wins = 0; var losses = 0
+        var wins = 0; var losses = 0; var totalPips = 0.0; var anyPips = false
         for (i in 0 until completed.length()) {
-            val r = completed.optJSONObject(i)?.str("result")?.uppercase(Locale.US)
-            if (r == "WIN") wins++
-            if (r == "LOSS") losses++
+            val o = completed.optJSONObject(i) ?: continue
+            when (o.str("result").uppercase(Locale.US)) { "WIN" -> wins++; "LOSS" -> losses++ }
+            pipsForSignal(o)?.let { totalPips += it.pips; anyPips = true }
         }
-        tvPendingCount.text = pending.length().toString()
+        tvPendingCount.text = "${pending.length()} active"
         tvCompletedCount.text = completed.length().toString()
         tvWins.text = wins.toString(); tvLosses.text = losses.toString()
+        tvTotalPips.text = if (anyPips) fmtPips(totalPips) else "—"
+        tvTotalPips.setTextColor(if (!anyPips) Color.WHITE else if (totalPips >= 0) GREEN else RED)
         val decided = wins + losses
         tvWinRate.text = if (decided > 0) String.format(Locale.US, "Win rate: %.0f%% (%d wins of %d decided trades)", wins * 100.0 / decided, wins, decided) else "Win rate: — (no WIN/LOSS outcomes yet)"
 
-        if (pending.length() == 0) addEmptyText(pendingContainer, "No active signals right now.\nWaiting for a setup from the backend...")
-        else for (i in 0 until pending.length()) pending.optJSONObject(i)?.let { addSignalCard(pendingContainer, it, true, i) }
+        allPending = pending; allCompleted = completed
+        renderLists()
+    }
 
-        if (completed.length() == 0) addEmptyText(completedContainer, "No signal history yet.")
-        else for (i in 0 until completed.length()) completed.optJSONObject(i)?.let { addSignalCard(completedContainer, it, false, i) }
+    private fun passes(o: JSONObject?): Boolean =
+        o != null && (dirFilter == "ALL" || o.str("direction").uppercase(Locale.US) == dirFilter)
+
+    private fun renderLists() {
+        livePips.clear()
+        pendingContainer.removeAllViews(); completedContainer.removeAllViews()
+
+        var n = 0
+        for (i in 0 until allPending.length()) {
+            val o = allPending.optJSONObject(i)
+            if (o != null && passes(o)) addSignalCard(pendingContainer, o, true, n++)
+        }
+        if (n == 0) addEmptyText(pendingContainer, "No active signals right now.\nWaiting for a setup from the backend...")
+
+        var m = 0
+        for (i in 0 until allCompleted.length()) {
+            val o = allCompleted.optJSONObject(i)
+            if (o != null && passes(o)) addSignalCard(completedContainer, o, false, m++)
+        }
+        if (m == 0) addEmptyText(completedContainer, "No signal history yet.")
+
+        refreshLivePips()
     }
 
     private fun triggerAlert() {
@@ -739,17 +944,17 @@ class MainActivity : AppCompatActivity() {
         return Pair(reward / risk, null)
     }
 
-    private fun pill(text: String, color: Int): TextView {
-        val t = makeText(text, 12f, color, true)
-        t.letterSpacing = 0.08f
-        t.setPadding(dp(12), dp(5), dp(12), dp(5))
-        t.background = roundedBg(ColorUtils.setAlphaComponent(color, 0x26), dpf(20f), ColorUtils.setAlphaComponent(color, 0x80))
+    private fun badge(text: String, bg: Int, fg: Int): TextView {
+        val t = makeText(text, 10f, fg, true)
+        t.setPadding(dp(8), dp(3), dp(8), dp(3))
+        t.background = roundedBg(bg, dpf(8f))
+        t.layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginStart = dp(6) }
         return t
     }
 
     private fun priceBox(label: String, value: String, color: Int, weight: Float): LinearLayout {
         val b = col()
-        b.addView(makeText(label, 10f, MUTED))
+        b.addView(makeText(label, 9f, MUTED))
         b.addView(makeText(value, 13f, color, true))
         b.layoutParams = LinearLayout.LayoutParams(0, WRAP, weight)
         return b
@@ -758,126 +963,115 @@ class MainActivity : AppCompatActivity() {
     private fun addSignalCard(container: LinearLayout, s: JSONObject, isPending: Boolean, index: Int) {
         val symbol = s.str("symbol").ifEmpty { "UNKNOWN" }.uppercase(Locale.US)
         val direction = s.str("direction").uppercase(Locale.US).ifEmpty { "—" }
-        val entry = s.num("entry"); val sl = s.num("stop_loss"); val tp = s.num("take_profit")
-        val tp2 = s.num("tp2"); val tp3 = s.num("tp3")
+        val entry = s.num("entry")
+        val sl = slOf(s)
+        val tps = s.tps()
         val result = s.str("result").uppercase(Locale.US)
         val quality = s.str("quality").ifEmpty { s.str("grade") }.uppercase(Locale.US)
-        val tf = s.str("timeframe").ifEmpty { s.str("tf") }
-        val type = s.str("type").ifEmpty { s.str("setup_type") }
+        val tf = s.str("timeframe")
+        val whenRaw = s.str("created_at").ifEmpty { s.str("time").ifEmpty { s.str("timestamp") } }
         val accent = when (direction) { "BUY" -> GREEN; "SELL" -> RED; else -> MUTED }
 
         val confRaw = s.num("confidence")
         val confidence: Int? = if (confRaw.isNaN()) null else (if (confRaw <= 1.0) confRaw * 100 else confRaw).toInt()
 
         val card = col()
-        card.setPadding(dp(14), dp(14), dp(14), dp(14))
+        card.setPadding(dp(14), dp(14), dp(14), dp(12))
         card.background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(ColorUtils.setAlphaComponent(accent, 0x18), CARD)
-        ).apply { cornerRadius = dpf(16f); setStroke(dp(1), ColorUtils.setAlphaComponent(accent, 0x70)) }
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(ColorUtils.setAlphaComponent(accent, 0x15), CARD)
+        ).apply { cornerRadius = dpf(14f); setStroke(dp(1), ColorUtils.setAlphaComponent(accent, 0x60)) }
         card.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(12) }
 
-        val top = row().apply { gravity = Gravity.CENTER_VERTICAL }
-        val icon = makeText(if (direction == "SELL") "↘" else "↗", 22f, accent, true).apply {
-            gravity = Gravity.CENTER
-            background = roundedBg(ColorUtils.setAlphaComponent(accent, 0x26), dpf(26f), accent)
-            layoutParams = LinearLayout.LayoutParams(dp(52), dp(52)).also { it.marginEnd = dp(12) }
-        }
-        top.addView(icon)
+        // ---- top row: confidence ring | symbol info | pips ----
+        val top = row()
+        top.gravity = Gravity.CENTER_VERTICAL
 
-        val nameCol = col()
-        val symRow = row().apply { gravity = Gravity.CENTER_VERTICAL }
-        symRow.addView(makeText(symbol, 18f, Color.WHITE, true))
-        val dirPill = makeText(direction, 10f, Color.BLACK, true).apply {
-            setPadding(dp(8), dp(2), dp(8), dp(2))
-            background = roundedBg(accent, dpf(10f))
-            layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginStart = dp(8) }
-        }
-        symRow.addView(dirPill)
-        nameCol.addView(symRow)
-        nameCol.addView(makeText(pairName(symbol), 11f, MUTED))
-        top.addView(nameCol, LinearLayout.LayoutParams(0, WRAP, 1f))
-
+        val ringCol = col()
+        ringCol.gravity = Gravity.CENTER_HORIZONTAL
         val ring = RingView(this)
         ring.ringColor = accent
-        var showRing = true
-        if (confidence != null) { ring.percent = confidence; ring.label = "$confidence%" }
-        else if (quality.isNotEmpty()) { ring.percent = 100; ring.label = quality }
-        else showRing = false
-        if (showRing) top.addView(ring, LinearLayout.LayoutParams(dp(54), dp(54)))
+        if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
+        else { ring.label = quality.ifEmpty { "—" }; ring.setPercent(100) }
+        ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
+        ringCol.addView(makeText("Confidence", 9f, MUTED).apply { gravity = Gravity.CENTER })
+        top.addView(ringCol)
+
+        val info = col()
+        info.setPadding(dp(12), 0, dp(8), 0)
+        info.layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+        val nameRow = row().apply { gravity = Gravity.CENTER_VERTICAL }
+        nameRow.addView(makeText(symbol, 17f, Color.WHITE, true))
+        nameRow.addView(badge(direction, accent, Color.BLACK))
+        if (tf.isNotEmpty()) nameRow.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
+        info.addView(nameRow)
+        info.addView(makeText(pairName(symbol), 10f, MUTED))
+        if (whenRaw.isNotEmpty()) info.addView(makeText(formatTime(whenRaw), 10f, MUTED).apply { setPadding(0, dp(4), 0, 0) })
+        top.addView(info)
+
+        val pipCol = col()
+        pipCol.gravity = Gravity.END
+        val pipTv = makeText("—", 20f, MUTED, true)
+        pipCol.addView(pipTv)
+        var pipSub = if (isPending) "pips · live" else "pips"
+        if (isPending) {
+            livePips.add(LivePip(pipTv, symbol, direction, entry))
+        } else {
+            val pr = pipsForSignal(s)
+            if (pr != null) {
+                pipTv.text = fmtPips(pr.pips)
+                pipTv.setTextColor(if (pr.pips >= 0) GREEN else RED)
+                if (pr.estimated) pipSub = "pips · est."
+            }
+        }
+        pipCol.addView(makeText(pipSub, 9f, MUTED).apply { gravity = Gravity.END })
+        top.addView(pipCol)
         card.addView(top)
 
-        val meta = ArrayList<String>()
-        if (tf.isNotEmpty()) meta.add("Timeframe: $tf")
-        if (type.isNotEmpty()) meta.add("Type: $type")
-        if (meta.isNotEmpty()) {
-            val m = makeText(meta.joinToString("    "), 11f, Color.parseColor("#C5CBD8")).apply {
-                setPadding(dp(10), dp(5), dp(10), dp(5))
-                background = roundedBg(Color.parseColor("#1B2140"), dpf(8f))
-                layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.topMargin = dp(10) }
-            }
-            card.addView(m)
+        // ---- levels ----
+        val rr = if (tps.isNotEmpty()) checkLevels(direction, entry, sl, tps[0]).first else null
+        val row1 = row().apply { setPadding(0, dp(12), 0, 0) }
+        row1.addView(priceBox("Entry", formatPrice(symbol, entry), Color.WHITE, 1f))
+        row1.addView(priceBox("Stop Loss", formatPrice(symbol, sl), RED, 1f))
+        row1.addView(priceBox("Risk : Reward", rr?.let { String.format(Locale.US, "1 : %.1f", it) } ?: "—", PURPLE_L, 1f))
+        card.addView(row1)
+
+        if (tps.isNotEmpty()) {
+            val row2 = row().apply { setPadding(0, dp(8), 0, 0) }
+            for (k in 0 until minOf(tps.size, 3)) row2.addView(priceBox("TP${k + 1}", formatPrice(symbol, tps[k]), GREEN, 1f))
+            for (k in tps.size until 3) row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+            card.addView(row2)
         }
 
-        val tpParts = ArrayList<String>()
-        for (v in listOf(tp, tp2, tp3)) if (!v.isNaN() && v != 0.0) tpParts.add(formatPrice(symbol, v))
-        val grid = row().apply { setPadding(0, dp(12), 0, 0) }
-        grid.addView(priceBox("Entry", formatPrice(symbol, entry), Color.WHITE, 1f))
-        grid.addView(priceBox("Stop Loss", formatPrice(symbol, sl), RED, 1f))
-        grid.addView(priceBox("Take Profit", if (tpParts.isEmpty()) "—" else tpParts.joinToString(" / "), GREEN, 1.7f))
-        card.addView(grid)
-
+        // ---- confluence ----
         val conf = s.optJSONArray("confluence")
         if (conf != null && conf.length() > 0) {
-            card.addView(makeText("Confluence", 11f, MUTED).apply { setPadding(0, dp(12), 0, dp(4)) })
-            for (i in 0 until minOf(conf.length(), 4)) {
+            val items = ArrayList<String>()
+            for (i in 0 until minOf(conf.length(), 5)) {
                 val item = conf.opt(i)
                 val text = when (item) { is String -> item; is JSONObject -> item.str("label").ifEmpty { item.str("text") }; else -> "" }
-                if (text.isNotBlank()) card.addView(makeText("✓ $text", 12f, Color.WHITE))
+                if (text.isNotBlank()) items.add("✓ $text")
             }
+            if (items.isNotEmpty()) card.addView(makeText(items.joinToString("    "), 10f, Color.parseColor("#C5CBD8")).apply { setPadding(0, dp(10), 0, 0) })
         }
 
-        val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, 0) }
-        val left = col()
-        val check = checkLevels(direction, entry, sl, tp)
-        val rrBackend = s.str("rr").ifEmpty { s.str("risk_reward") }
-        val rrText = if (rrBackend.isNotEmpty()) "R:R $rrBackend" else check.first?.let { String.format(Locale.US, "R:R 1:%.2f", it) } ?: ""
-        if (rrText.isNotEmpty()) left.addView(makeText(rrText, 12f, Color.WHITE, true))
-        if (isPending) {
-            val exp = remaining(s.str("expires_at"))
-            if (exp.isNotEmpty()) left.addView(makeText("Expires: $exp", 11f, MUTED))
-        } else {
-            val created = formatTime(s.str("created_at"))
-            if (created.isNotEmpty()) left.addView(makeText(created, 11f, MUTED))
-        }
-        bottom.addView(left, LinearLayout.LayoutParams(0, WRAP, 1f))
-
-        if (!isPending && result.isNotEmpty()) {
-            bottom.addView(pill(result, if (result == "WIN") GREEN else if (result == "LOSS") RED else AMBER))
-        } else if (!entry.isNaN() && !tp.isNaN()) {
-            val pips = abs(tp - entry) / pipSize(symbol)
-            val pb = col().apply {
-                gravity = Gravity.CENTER
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                background = roundedBg(ColorUtils.setAlphaComponent(accent, 0x1A), dpf(10f), accent)
-            }
-            pb.addView(makeText(String.format(Locale.US, "+%,.0f pips", pips), 13f, accent, true))
-            pb.addView(makeText("Potential Profit", 9f, Color.WHITE))
-            bottom.addView(pb)
-        }
-
-        val btnChart = makeText("📊 Chart", 11f, Color.WHITE, true).apply {
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = roundedBg(Color.parseColor("#262626"), dpf(12f), STROKE)
-            layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginStart = dp(8) }
+        // ---- bottom: status + view chart ----
+        val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
+        val statusText = if (isPending) "● Active" else if (result.isNotEmpty()) "● $result" else "● Closed"
+        val statusColor = if (isPending) AMBER else when (result) { "WIN" -> GREEN; "LOSS" -> RED; else -> MUTED }
+        bottom.addView(makeText(statusText, 11f, statusColor, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
+        val btnChart = makeText("📈 View Chart", 11f, Color.WHITE, true).apply {
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = roundedBg(ColorUtils.setAlphaComponent(PURPLE, 0x40), dpf(10f), PURPLE)
+            gravity = Gravity.CENTER
         }
         applyBounce(btnChart)
-        btnChart.setOnClickListener { selectSymbol(symbol); setNav(navHome); scrollMain.smoothScrollTo(0, 0) }
+        btnChart.setOnClickListener { openChartFor(symbol, direction, entry, sl, tps, tf) }
         bottom.addView(btnChart)
         card.addView(bottom)
 
-        card.alpha = 0f; card.translationY = dpf(16f); container.addView(card)
-        card.animate().alpha(1f).translationY(0f).setStartDelay(index * 60L).setDuration(350).setInterpolator(DecelerateInterpolator()).start()
+        card.alpha = 0f; card.translationX = dpf(20f); container.addView(card)
+        card.animate().alpha(1f).translationX(0f).setStartDelay(index * 50L).setDuration(300).start()
     }
 
     private fun formatPrice(symbol: String, v: Double): String {
@@ -906,15 +1100,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun formatTime(iso: String): String {
         val d = parseIso(iso) ?: return iso
-        return SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(d)
-    }
-
-    private fun remaining(iso: String): String {
-        val d = parseIso(iso) ?: return ""
-        val ms = d.time - System.currentTimeMillis()
-        if (ms <= 0) return "Expired"
-        val m = ms / 60000; val h = m / 60; val days = h / 24
-        return if (days > 0) "${days}d ${h % 24}h" else "${h}h ${m % 60}m"
+        return SimpleDateFormat("dd MMM yyyy  HH:mm", Locale.getDefault()).format(d)
     }
 
     private fun addEmptyText(container: LinearLayout, text: String) {
@@ -924,6 +1110,7 @@ class MainActivity : AppCompatActivity() {
         container.addView(tv)
     }
 
+    // ---------- MARKET ----------
     private fun renderNews(json: JSONObject) {
         val news = json.optJSONArray("news")
         newsContainer.removeAllViews()
@@ -958,12 +1145,12 @@ class MainActivity : AppCompatActivity() {
         tvSession.text = "Active sessions: " + (if (active.isEmpty()) "none" else active.joinToString(", ")) + overlap + "\nUTC now: $utc"
     }
 
-    // ------------------------------------------------------------------ chat
-
+    // ---------- CHAT ----------
     private fun sendChat() {
         val text = etInput.text.toString().trim()
         if (text.isEmpty()) return
         etInput.setText(""); chatPanel.visibility = View.VISIBLE
+        navProfile.setTextColor(PURPLE_L)
         addBubble(text, isUser = true)
         val typing = addBubble("Sky AI is thinking…", isUser = false)
         btnSend.isEnabled = false
