@@ -46,7 +46,6 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.skyai.app.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -502,7 +501,6 @@ class MainActivity : AppCompatActivity() {
         return out
     }
 
-    /** Pips achieved by a closed signal. Uses backend pips/exit price when present, otherwise estimates from levels. */
     private fun pipsForSignal(s: JSONObject): PipResult? {
         val sym = s.str("symbol").uppercase(Locale.US)
         val dir = s.str("direction").uppercase(Locale.US)
@@ -740,7 +738,6 @@ class MainActivity : AppCompatActivity() {
         loadChart()
     }
 
-    /** Opens the Charts screen on the signal's symbol and draws its Entry / SL / TP levels. */
     private fun openChartFor(symbol: String, direction: String, entry: Double, sl: Double, tps: List<Double>, tf: String) {
         val t = JSONObject().put("direction", direction)
         if (!entry.isNaN()) t.put("entry", entry)
