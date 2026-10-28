@@ -387,17 +387,26 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- SEPARATE SCREENS ----------
     private fun showTab(t: Tab) {
-        chartSection.visibility = if (t == Tab.CHART) View.VISIBLE else View.GONE
-        signalsSection.visibility = if (t == Tab.SIGNALS) View.VISIBLE else View.GONE
-        historySection.visibility = if (t == Tab.HISTORY) View.VISIBLE else View.GONE
-        marketSection.visibility = if (t == Tab.MARKET) View.VISIBLE else View.GONE
+        if (t == Tab.CHART) {
+            chartSection.visibility = View.VISIBLE
+            scrollMain.visibility = View.GONE
+        } else {
+            chartSection.visibility = View.GONE
+            scrollMain.visibility = View.VISIBLE
+
+            signalsSection.visibility = if (t == Tab.SIGNALS) View.VISIBLE else View.GONE
+            historySection.visibility = if (t == Tab.HISTORY) View.VISIBLE else View.GONE
+            marketSection.visibility = if (t == Tab.MARKET) View.VISIBLE else View.GONE
+
+            scrollMain.post { scrollMain.scrollTo(0, 0) }
+        }
+
         setNav(when (t) {
             Tab.CHART -> navHome
             Tab.SIGNALS -> navSignals
             Tab.HISTORY -> navHistory
             Tab.MARKET -> navNew
         })
-        scrollMain.post { scrollMain.scrollTo(0, 0) }
     }
 
     private fun setNav(active: TextView) {
@@ -867,9 +876,28 @@ class MainActivity : AppCompatActivity() {
         if (sig == lastSignalsSig) return
         lastSignalsSig = sig
 
-        val ids = mutableSetOf<String>()
+        // --- NEW: Filter out old signals (older than 12 hours) ---
+        val validPending = JSONArray()
+        val now = System.currentTimeMillis()
+        
         for (i in 0 until pending.length()) {
-            val id = pending.optJSONObject(i)?.str("id")
+            val o = pending.optJSONObject(i) ?: continue
+            val timeStr = o.str("created_at").ifEmpty { o.str("time").ifEmpty { o.str("timestamp") } }
+            val date = parseIso(timeStr)
+            
+            if (date != null) {
+                val ageMs = now - date.time
+                if (ageMs > 12 * 60 * 60 * 1000L) {
+                    continue // Skip this old signal
+                }
+            }
+            validPending.put(o)
+        }
+        // ----------------------------------------------------------
+
+        val ids = mutableSetOf<String>()
+        for (i in 0 until validPending.length()) {
+            val id = validPending.optJSONObject(i)?.str("id")
             if (!id.isNullOrEmpty()) ids.add(id)
         }
         if (signalsSeen && !lastSignalIds.containsAll(ids)) triggerAlert()
@@ -882,7 +910,8 @@ class MainActivity : AppCompatActivity() {
             when (o.str("result").uppercase(Locale.US)) { "WIN" -> wins++; "LOSS" -> losses++ }
             pipsForSignal(o)?.let { totalPips += it.pips; anyPips = true }
         }
-        tvPendingCount.text = "${pending.length()} active"
+        
+        tvPendingCount.text = "${validPending.length()} active"
         tvCompletedCount.text = completed.length().toString()
         tvWins.text = wins.toString(); tvLosses.text = losses.toString()
         tvTotalPips.text = if (anyPips) fmtPips(totalPips) else "—"
@@ -890,7 +919,8 @@ class MainActivity : AppCompatActivity() {
         val decided = wins + losses
         tvWinRate.text = if (decided > 0) String.format(Locale.US, "Win rate: %.0f%% (%d wins of %d decided trades)", wins * 100.0 / decided, wins, decided) else "Win rate: — (no WIN/LOSS outcomes yet)"
 
-        allPending = pending; allCompleted = completed
+        allPending = validPending
+        allCompleted = completed
         renderLists()
     }
 
@@ -988,8 +1018,20 @@ class MainActivity : AppCompatActivity() {
         ringCol.gravity = Gravity.CENTER_HORIZONTAL
         val ring = RingView(this)
         ring.ringColor = accent
-        if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
-        else { ring.label = quality.ifEmpty { "—" }; ring.setPercent(100) }
+        
+        // --- NEW: Better fallback for missing confidence ---
+        if (confidence != null) { 
+            ring.label = "$confidence%"
+            ring.setPercent(confidence) 
+        } else if (quality.isNotEmpty()) { 
+            ring.label = quality
+            ring.setPercent(100) 
+        } else { 
+            ring.label = "—" 
+            ring.setPercent(0) 
+        }
+        // ----------------------------------------------------
+        
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
         ringCol.addView(makeText("Confidence", 9f, MUTED).apply { gravity = Gravity.CENTER })
         top.addView(ringCol)
