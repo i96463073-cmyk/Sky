@@ -58,6 +58,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import kotlin.math.abs
 
 /** Animated circular confidence gauge for the signal cards. */
 class RingView(context: Context) : View(context) {
@@ -75,7 +76,7 @@ class RingView(context: Context) : View(context) {
         style = Paint.Style.STROKE; strokeWidth = 5 * d; strokeCap = Paint.Cap.ROUND
     }
     private val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; textSize = 15 * d; color = Color.WHITE
+        textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; textSize = 13 * d; color = Color.WHITE
     }
     private val r = RectF()
 
@@ -160,8 +161,6 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    
-    // ✅ FASTER POLLING: Changed from 4000L to 1500L
     private val POLL_MS = 1500L
 
     private val BG = Color.parseColor("#0B0E14")
@@ -191,7 +190,6 @@ class MainActivity : AppCompatActivity() {
 
     private val TIMEFRAMES = listOf("M5", "M15", "H1", "H4")
     private val TF_LABELS = mapOf("M5" to "5m", "M15" to "15m", "H1" to "1h", "H4" to "4h")
-    
     private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD")
 
     private var selectedSymbol = "XAUUSD"
@@ -213,7 +211,15 @@ class MainActivity : AppCompatActivity() {
     private var activeTrade: JSONObject? = null
     private var activeTradeSym = ""
 
-    private class LivePip(val tv: TextView, val sym: String, val dir: String, val entry: Double)
+    private class LivePip(
+        val tv: TextView, 
+        val ring: RingView, 
+        val sym: String, 
+        val dir: String, 
+        val entry: Double, 
+        val sl: Double, 
+        val tp1: Double
+    )
     private data class PipResult(val pips: Double, val estimated: Boolean)
     private val livePips = ArrayList<LivePip>()
 
@@ -542,10 +548,33 @@ class MainActivity : AppCompatActivity() {
     private fun refreshLivePips() {
         for (p in livePips) {
             val px = lastPrices[p.sym]
-            if (px == null || p.entry.isNaN()) { p.tv.text = "—"; continue }
+            if (px == null || p.entry.isNaN() || p.sl.isNaN() || p.tp1.isNaN()) { 
+                p.tv.text = "—"
+                continue 
+            }
+            
+            // Calculate current Pips
             val v = pipsOf(p.sym, p.dir, p.entry, px)
             p.tv.text = fmtPips(v)
             p.tv.setTextColor(if (v >= 0) GREEN else RED)
+
+            // Calculate Trade Progress %
+            val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
+            val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.tp1))
+            
+            var livePercent = 0
+            if (v >= 0) {
+                livePercent = if (totalReward > 0) ((v / totalReward) * 100).toInt() else 0
+                p.ring.ringColor = GREEN
+                p.ring.label = "+$livePercent%"
+                p.ring.setPercent(livePercent.coerceIn(0, 100), animate = true)
+            } else {
+                val drawdown = abs(v)
+                livePercent = if (totalRisk > 0) ((drawdown / totalRisk) * 100).toInt() else 0
+                p.ring.ringColor = RED
+                p.ring.label = "-$livePercent%"
+                p.ring.setPercent(livePercent.coerceIn(0, 100), animate = true)
+            }
         }
     }
 
@@ -1009,19 +1038,16 @@ class MainActivity : AppCompatActivity() {
         val ring = RingView(this)
         ring.ringColor = accent
         
-        if (confidence != null) { 
-            ring.label = "$confidence%"
-            ring.setPercent(confidence) 
-        } else if (quality.isNotEmpty()) { 
-            ring.label = quality
-            ring.setPercent(100) 
-        } else { 
-            ring.label = "—" 
-            ring.setPercent(0) 
+        if (!isPending) { 
+            if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
+            else { ring.label = quality.ifEmpty { "—" }; ring.setPercent(if (quality.isNotEmpty()) 100 else 0) }
+        } else {
+            ring.label = "0%"
+            ring.setPercent(0)
         }
         
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
-        ringCol.addView(makeText("Confidence", 9f, MUTED).apply { gravity = Gravity.CENTER })
+        ringCol.addView(makeText(if (isPending) "Progress" else "Confidence", 9f, MUTED).apply { gravity = Gravity.CENTER })
         top.addView(ringCol)
 
         val info = col()
@@ -1042,7 +1068,8 @@ class MainActivity : AppCompatActivity() {
         pipCol.addView(pipTv)
         var pipSub = if (isPending) "pips · live" else "pips"
         if (isPending) {
-            livePips.add(LivePip(pipTv, symbol, direction, entry))
+            val tp1 = tps.firstOrNull() ?: 0.0
+            livePips.add(LivePip(pipTv, ring, symbol, direction, entry, sl, tp1))
         } else {
             val pr = pipsForSignal(s)
             if (pr != null) {
