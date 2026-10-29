@@ -160,7 +160,9 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 4000L
+    
+    // ✅ FASTER POLLING: Changed from 4000L to 1500L
+    private val POLL_MS = 1500L
 
     private val BG = Color.parseColor("#0B0E14")
     private val CARD = Color.parseColor("#131824")
@@ -190,7 +192,6 @@ class MainActivity : AppCompatActivity() {
     private val TIMEFRAMES = listOf("M5", "M15", "H1", "H4")
     private val TF_LABELS = mapOf("M5" to "5m", "M15" to "15m", "H1" to "1h", "H4" to "4h")
     
-    // ✅ FIXED: Matches exactly what your backend supports
     private val FALLBACK_SYMBOLS = listOf("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD")
 
     private var selectedSymbol = "XAUUSD"
@@ -465,7 +466,6 @@ class MainActivity : AppCompatActivity() {
         "USDCAD" -> "US Dollar / CAD"
         "USDCHF" -> "US Dollar / Franc"
         "NZDUSD" -> "Kiwi / US Dollar"
-        "BTCUSD" -> "Bitcoin / US Dollar"
         else -> "Forex Pair"
     }
 
