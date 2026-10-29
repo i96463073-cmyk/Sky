@@ -327,12 +327,16 @@ function init(){
   setTimeout(resize,100);
 
   let sig='';
-  (function loop(){
-    if(S.bars.length){
+  let lastDraw = 0;
+  
+  // ✅ THROTTLED LOOP: Redraws at ~15 FPS instead of 60 FPS to prevent lag
+  (function loop(timestamp){
+    if (timestamp - lastDraw > 66 && S.bars.length){
       const r=chart.timeScale().getVisibleLogicalRange();
       const y=series.priceToCoordinate(S.bars[S.bars.length-1].close);
       const s=[r&&r.from,r&&r.to,y,elChart.clientWidth,elChart.clientHeight,S.rev].join('|');
       if(s!==sig){sig=s;draw();}
+      lastDraw = timestamp;
     }
     requestAnimationFrame(loop);
   })();
@@ -372,7 +376,6 @@ window.renderSignal=function(data,key){
     S.bars=bars;
     series.setData(bars);
     
-    // FORCE THE CHART TO RESET THE PRICE SCALE AND CENTER
     chart.priceScale('right').applyOptions({ autoScale: true });
     
     rsiSeries.setData(calcRSI(bars.map(b=>b.close),14));
@@ -383,12 +386,9 @@ window.renderSignal=function(data,key){
     
     if(key!==S.key){
       S.key=key;
-      S.trade=null; // Clear old trade lines when switching symbols
+      S.trade=null;
       
-      // Fit the chart to the new data immediately
       chart.timeScale().fitContent();
-      
-      // Zoom in to the last 80 bars
       const n=bars.length;
       if(n>0){
         chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-80),to:n+10});
