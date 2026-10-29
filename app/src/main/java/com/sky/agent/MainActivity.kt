@@ -60,7 +60,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.math.abs
 
-/** Animated circular confidence gauge for the signal cards. */
 class RingView(context: Context) : View(context) {
     var ringColor = Color.GREEN
     var label = ""
@@ -218,7 +217,7 @@ class MainActivity : AppCompatActivity() {
         val dir: String, 
         val entry: Double, 
         val sl: Double, 
-        val tp1: Double
+        val lastTp: Double // Changed to last TP
     )
     private data class PipResult(val pips: Double, val estimated: Boolean)
     private val livePips = ArrayList<LivePip>()
@@ -548,19 +547,31 @@ class MainActivity : AppCompatActivity() {
     private fun refreshLivePips() {
         for (p in livePips) {
             val px = lastPrices[p.sym]
-            if (px == null || p.entry.isNaN() || p.sl.isNaN() || p.tp1.isNaN()) { 
+            if (px == null || p.entry.isNaN() || p.sl.isNaN() || p.lastTp.isNaN()) { 
                 p.tv.text = "—"
                 continue 
             }
             
+            // Check if entry is triggered
+            val isEntryHit = if (p.dir == "BUY") px <= p.entry else px >= p.entry
+            
+            if (!isEntryHit) {
+                p.tv.text = "Waiting Entry"
+                p.tv.setTextColor(AMBER)
+                p.ring.ringColor = AMBER
+                p.ring.label = "Wait"
+                p.ring.setPercent(0)
+                continue
+            }
+
             // Calculate current Pips
             val v = pipsOf(p.sym, p.dir, p.entry, px)
             p.tv.text = fmtPips(v)
             p.tv.setTextColor(if (v >= 0) GREEN else RED)
 
-            // Calculate Trade Progress %
+            // Calculate Trade Progress % (Towards LAST TP)
             val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
-            val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.tp1))
+            val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.lastTp))
             
             var livePercent = 0
             if (v >= 0) {
@@ -901,7 +912,6 @@ class MainActivity : AppCompatActivity() {
         if (sig == lastSignalsSig) return
         lastSignalsSig = sig
 
-        // Filter out old signals (older than 12 hours)
         val validPending = JSONArray()
         val now = System.currentTimeMillis()
         for (i in 0 until pending.length()) {
@@ -910,7 +920,7 @@ class MainActivity : AppCompatActivity() {
             val date = parseIso(timeStr)
             if (date != null) {
                 val ageMs = now - date.time
-                if (ageMs > 12 * 60 * 60 * 1000L) continue // Skip old
+                if (ageMs > 12 * 60 * 60 * 1000L) continue
             }
             validPending.put(o)
         }
@@ -1014,6 +1024,7 @@ class MainActivity : AppCompatActivity() {
         val sl = slOf(s)
         val tps = s.tps()
         val result = s.str("result").uppercase(Locale.US)
+        val tpHit = s.optInt("tp_hit", 0)
         val quality = s.str("quality").ifEmpty { s.str("grade") }.uppercase(Locale.US)
         val tf = s.str("timeframe")
         val whenRaw = s.str("created_at").ifEmpty { s.str("time").ifEmpty { s.str("timestamp") } }
@@ -1042,8 +1053,9 @@ class MainActivity : AppCompatActivity() {
             if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
             else { ring.label = quality.ifEmpty { "—" }; ring.setPercent(if (quality.isNotEmpty()) 100 else 0) }
         } else {
-            ring.label = "0%"
+            ring.label = "Wait"
             ring.setPercent(0)
+            ring.ringColor = AMBER
         }
         
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
@@ -1068,8 +1080,10 @@ class MainActivity : AppCompatActivity() {
         pipCol.addView(pipTv)
         var pipSub = if (isPending) "pips · live" else "pips"
         if (isPending) {
-            val tp1 = tps.firstOrNull() ?: 0.0
-            livePips.add(LivePip(pipTv, ring, symbol, direction, entry, sl, tp1))
+            val lastTp = tps.lastOrNull() ?: 0.0
+            livePips.add(LivePip(pipTv, ring, symbol, direction, entry, sl, lastTp))
+            pipTv.text = "Waiting Entry"
+            pipTv.setTextColor(AMBER)
         } else {
             val pr = pipsForSignal(s)
             if (pr != null) {
@@ -1108,7 +1122,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
-        val statusText = if (isPending) "● Active" else if (result.isNotEmpty()) "● $result" else "● Closed"
+        
+        val statusText = if (isPending) {
+            "● Active"
+        } else if (result.isNotEmpty()) {
+            if (result == "WIN" && tpHit > 0 && tpHit < 3) "● WIN (TP$tpHit)" else "● $result"
+        } else {
+            "● Closed"
+        }
+        
         val statusColor = if (isPending) AMBER else when (result) { "WIN" -> GREEN; "LOSS" -> RED; else -> MUTED }
         bottom.addView(makeText(statusText, 11f, statusColor, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
         val btnChart = makeText("📈 View Chart", 11f, Color.WHITE, true).apply {
