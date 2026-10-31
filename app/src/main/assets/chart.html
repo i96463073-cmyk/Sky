@@ -31,6 +31,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;fon
     <div class="tg on" data-k="fvg">FVG</div>
     <div class="tg on" data-k="liq">LIQ</div>
     <div class="tg on" data-k="pd">P/D</div>
+    <div class="tg on" data-k="kill">Killzones</div>
   </div>
   <div id="wrap">
     <div id="chart" class="pane">
@@ -49,7 +50,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;fon
 <script>
 (function(){
 const $=id=>document.getElementById(id);
-const S={sym:'',key:'',bars:[],smc:null,trade:null,autoTrade:null,rev:0,show:{str:true,ob:true,fvg:true,liq:true,pd:true}};
+const S={sym:'',key:'',bars:[],smc:null,trade:null,autoTrade:null,rev:0,show:{str:true,ob:true,fvg:true,liq:true,pd:true,kill:true}};
 const TFL={M1:'1m',M5:'5m',M15:'15m',M30:'30m',H1:'1h',H4:'4h',D1:'1d'};
 const elChart=$('chart'),elRsi=$('rsi'),elVol=$('vol'),cv=$('ov'),ctx=cv.getContext('2d');
 let chart,series,rsiChart,rsiSeries,volChart,volSeries;
@@ -202,6 +203,70 @@ function draw(){
 
   ctx.save();ctx.beginPath();ctx.rect(0,0,pw,h);ctx.clip();
 
+  // 🌟 NEW: DRAW KILLZONES IN BACKGROUND (Kenyan Time EAT = UTC+3)
+  if(sh.kill){
+    // We check every bar. If its UTC hour+3 is in the killzone, we shade it.
+    let inLondon = false, inNY = false;
+    let londonStart = -1, nyStart = -1;
+
+    for(let i=0; i<n; i++){
+      const utcHour = new Date(bars[i].time * 1000).getUTCHours();
+      const eatHour = (utcHour + 3) % 24;
+      
+      // London: 11:00 - 15:00 EAT
+      const isL = eatHour >= 11 && eatHour < 15;
+      // NY: 16:00 - 20:00 EAT
+      const isNY = eatHour >= 16 && eatHour < 20;
+
+      if(isL && !inLondon) { londonStart = i; inLondon = true; }
+      else if(!isL && inLondon) { 
+        // Draw London Box
+        const x0 = X(londonStart), x1 = X(i);
+        if(x0!=null && x1!=null) {
+           ctx.fillStyle = 'rgba(33, 150, 243, 0.08)'; // Faint Blue
+           ctx.fillRect(x0, 0, x1-x0, h);
+           ctx.strokeStyle = 'rgba(33, 150, 243, 0.3)';
+           ctx.lineWidth = 1;
+           ctx.beginPath(); ctx.moveTo(x0,0); ctx.lineTo(x0,h); ctx.stroke();
+           tag('London (11:00-15:00 EAT)', x0+2, 15, '#64B5F6', 'rgba(33, 150, 243, 0.2)', 'left');
+        }
+        inLondon = false;
+      }
+
+      if(isNY && !inNY) { nyStart = i; inNY = true; }
+      else if(!isNY && inNY) {
+        // Draw NY Box
+        const x0 = X(nyStart), x1 = X(i);
+        if(x0!=null && x1!=null) {
+           ctx.fillStyle = 'rgba(255, 179, 0, 0.08)'; // Faint Orange
+           ctx.fillRect(x0, 0, x1-x0, h);
+           ctx.strokeStyle = 'rgba(255, 179, 0, 0.3)';
+           ctx.lineWidth = 1;
+           ctx.beginPath(); ctx.moveTo(x0,0); ctx.lineTo(x0,h); ctx.stroke();
+           tag('NY (16:00-20:00 EAT)', x0+2, 15, '#FFB300', 'rgba(255, 179, 0, 0.2)', 'left');
+        }
+        inNY = false;
+      }
+    }
+    // Draw if still active at the end
+    if(inLondon) {
+        const x0 = X(londonStart), x1 = X(n-1);
+        if(x0!=null && x1!=null) {
+           ctx.fillStyle = 'rgba(33, 150, 243, 0.08)';
+           ctx.fillRect(x0, 0, x1-x0, h);
+           tag('London (11:00-15:00 EAT)', x0+2, 15, '#64B5F6', 'rgba(33, 150, 243, 0.2)', 'left');
+        }
+    }
+    if(inNY) {
+        const x0 = X(nyStart), x1 = X(n-1);
+        if(x0!=null && x1!=null) {
+           ctx.fillStyle = 'rgba(255, 179, 0, 0.08)';
+           ctx.fillRect(x0, 0, x1-x0, h);
+           tag('NY (16:00-20:00 EAT)', x0+2, 15, '#FFB300', 'rgba(255, 179, 0, 0.2)', 'left');
+        }
+    }
+  }
+
   if(sh.pd&&sm.range){
     const r=sm.range,x0=X(r.i0);
     box(x0,pw,r.hi,r.eq,'rgba(255,59,92,.07)',null);
@@ -329,7 +394,6 @@ function init(){
   let sig='';
   let lastDraw = 0;
   
-  // ✅ THROTTLED LOOP: Redraws at ~15 FPS instead of 60 FPS to prevent lag
   (function loop(timestamp){
     if (timestamp - lastDraw > 66 && S.bars.length){
       const r=chart.timeScale().getVisibleLogicalRange();
@@ -410,4 +474,4 @@ init();
 })();
 </script>
 </body>
-  </html>
+</html>
