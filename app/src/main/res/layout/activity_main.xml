@@ -114,7 +114,7 @@
         android:indeterminate="true"
         android:visibility="gone" />
 
-    <!-- ================= SCREEN 1: CHARTS (FULL SCREEN) ================= -->
+    <!-- ================= SCREEN 1: CHARTS ================= -->
     <LinearLayout
         android:id="@+id/chartSection"
         android:layout_width="match_parent"
@@ -280,6 +280,17 @@
                         android:text="0 active"
                         android:textColor="#8A93A6"
                         android:textSize="12sp" />
+                        
+                    <!-- ✅ NEW: SETTINGS ICON -->
+                    <TextView
+                        android:id="@+id/btnSettings"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:padding="4dp"
+                        android:text="⚙"
+                        android:textColor="#8A93A6"
+                        android:textSize="18sp" />
                 </LinearLayout>
 
                 <HorizontalScrollView
@@ -340,7 +351,6 @@
                             android:layout_weight="1"
                             android:gravity="center"
                             android:orientation="vertical">
-
                             <TextView
                                 android:id="@+id/tvCompletedCount"
                                 android:layout_width="wrap_content"
@@ -349,7 +359,6 @@
                                 android:textColor="#FFFFFF"
                                 android:textSize="18sp"
                                 android:textStyle="bold" />
-
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -364,7 +373,6 @@
                             android:layout_weight="1"
                             android:gravity="center"
                             android:orientation="vertical">
-
                             <TextView
                                 android:id="@+id/tvWins"
                                 android:layout_width="wrap_content"
@@ -373,7 +381,6 @@
                                 android:textColor="#00E676"
                                 android:textSize="18sp"
                                 android:textStyle="bold" />
-
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -388,7 +395,6 @@
                             android:layout_weight="1"
                             android:gravity="center"
                             android:orientation="vertical">
-
                             <TextView
                                 android:id="@+id/tvLosses"
                                 android:layout_width="wrap_content"
@@ -397,7 +403,6 @@
                                 android:textColor="#FF3B5C"
                                 android:textSize="18sp"
                                 android:textStyle="bold" />
-
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -412,7 +417,6 @@
                             android:layout_weight="1"
                             android:gravity="center"
                             android:orientation="vertical">
-
                             <TextView
                                 android:id="@+id/tvTotalPips"
                                 android:layout_width="wrap_content"
@@ -421,7 +425,6 @@
                                 android:textColor="#FFFFFF"
                                 android:textSize="18sp"
                                 android:textStyle="bold" />
-
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -430,15 +433,32 @@
                                 android:textSize="10sp" />
                         </LinearLayout>
                     </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/tvWinRate"
-                        android:layout_width="wrap_content"
+                    
+                    <!-- ✅ NEW: BEST PAIR & WIN RATE ROW -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:text="Win rate: —"
-                        android:textColor="#C5CBD8"
-                        android:textSize="11sp" />
+                        android:layout_marginTop="12dp"
+                        android:orientation="horizontal">
+                        <TextView
+                            android:id="@+id/tvBestPair"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="start"
+                            android:text="Best Pair: —"
+                            android:textColor="#C5CBD8"
+                            android:textSize="11sp" />
+                        <TextView
+                            android:id="@+id/tvWinRate"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:gravity="end"
+                            android:text="Win rate: —"
+                            android:textColor="#C5CBD8"
+                            android:textSize="11sp" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <LinearLayout
@@ -464,7 +484,6 @@
                     android:textColor="#8A93A6"
                     android:textSize="11sp"
                     android:textStyle="bold" />
-
                 <TextView
                     android:id="@+id/tvSession"
                     android:layout_width="match_parent"
@@ -481,7 +500,6 @@
                     android:textColor="#8A93A6"
                     android:textSize="11sp"
                     android:textStyle="bold" />
-
                 <TextView
                     android:id="@+id/tvNewsStatus"
                     android:layout_width="match_parent"
@@ -489,7 +507,6 @@
                     android:layout_marginTop="4dp"
                     android:textColor="#C5CBD8"
                     android:textSize="12sp" />
-
                 <LinearLayout
                     android:id="@+id/newsContainer"
                     android:layout_width="match_parent"
@@ -497,13 +514,11 @@
                     android:orientation="vertical" />
             </LinearLayout>
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="24dp" />
+            <View android:layout_width="match_parent" android:layout_height="24dp" />
         </LinearLayout>
     </ScrollView>
 
-    <!-- CHAT PANEL (hidden by default) -->
+    <!-- CHAT PANEL -->
     <LinearLayout
         android:id="@+id/chatPanel"
         android:layout_width="match_parent"
@@ -518,7 +533,6 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
-
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -527,7 +541,6 @@
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold" />
-
             <TextView
                 android:id="@+id/tvCloseChat"
                 android:layout_width="wrap_content"
@@ -543,7 +556,6 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
-
             <LinearLayout
                 android:id="@+id/chatContainer"
                 android:layout_width="match_parent"
@@ -557,7 +569,6 @@
             android:layout_marginTop="6dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
-
             <EditText
                 android:id="@+id/etInput"
                 android:layout_width="0dp"
@@ -571,7 +582,6 @@
                 android:textColor="#FFFFFF"
                 android:textColorHint="#8A93A6"
                 android:textSize="14sp" />
-
             <Button
                 android:id="@+id/btnSend"
                 style="?android:attr/borderlessButtonStyle"
