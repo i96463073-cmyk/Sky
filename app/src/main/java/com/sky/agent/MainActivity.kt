@@ -553,21 +553,12 @@ class MainActivity : AppCompatActivity() {
                 continue 
             }
             
-            val isEntryHit = if (p.dir == "BUY") px <= p.entry else px >= p.entry
-            
-            if (!isEntryHit) {
-                p.tv.text = "Waiting Entry"
-                p.tv.setTextColor(AMBER)
-                p.ring.ringColor = AMBER
-                p.ring.label = "Wait"
-                p.ring.setPercent(0)
-                continue
-            }
-
+            // Calculate Pips directly (No waiting)
             val v = pipsOf(p.sym, p.dir, p.entry, px)
             p.tv.text = fmtPips(v)
             p.tv.setTextColor(if (v >= 0) GREEN else RED)
 
+            // Calculate Trade Progress %
             val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
             val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.lastTp))
             
@@ -1031,7 +1022,6 @@ class MainActivity : AppCompatActivity() {
         val confRaw = s.num("confidence")
         val confidence: Int? = if (confRaw.isNaN()) null else (if (confRaw <= 1.0) confRaw * 100 else confRaw).toInt()
 
-        // Determine Quality Color
         val qColor = when (quality) {
             "HIGH" -> GREEN
             "GOOD" -> PURPLE_L
@@ -1059,9 +1049,9 @@ class MainActivity : AppCompatActivity() {
             if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
             else { ring.label = "—"; ring.setPercent(0) }
         } else {
-            ring.label = "Wait"
+            ring.label = "0%"
             ring.setPercent(0)
-            ring.ringColor = AMBER
+            ring.ringColor = GREEN
         }
         
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
@@ -1076,7 +1066,6 @@ class MainActivity : AppCompatActivity() {
         nameRow.addView(badge(direction, accent, Color.BLACK))
         if (tf.isNotEmpty()) nameRow.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
         
-        // ✅ QUALITY BADGE
         if (quality.isNotEmpty()) {
             nameRow.addView(badge(quality, qColor, Color.BLACK))
         }
@@ -1094,8 +1083,6 @@ class MainActivity : AppCompatActivity() {
         if (isPending) {
             val lastTp = tps.lastOrNull() ?: 0.0
             livePips.add(LivePip(pipTv, ring, symbol, direction, entry, sl, lastTp))
-            pipTv.text = "Waiting Entry"
-            pipTv.setTextColor(AMBER)
         } else {
             val pr = pipsForSignal(s)
             if (pr != null) {
