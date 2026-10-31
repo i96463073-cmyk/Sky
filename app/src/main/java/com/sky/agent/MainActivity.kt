@@ -2,6 +2,7 @@ package com.sky.agent
 
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -17,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.text.InputType
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
@@ -142,6 +144,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLosses: TextView
     private lateinit var tvTotalPips: TextView
     private lateinit var tvWinRate: TextView
+    private lateinit var tvBestPair: TextView
     private lateinit var chatPanel: LinearLayout
     private lateinit var chatScroll: ScrollView
     private lateinit var chatContainer: LinearLayout
@@ -153,6 +156,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var navNew: TextView
     private lateinit var navHistory: TextView
     private lateinit var navProfile: TextView
+    private lateinit var btnSettings: TextView
 
     private lateinit var web: WebView
     private lateinit var chartLoader: ProgressBar
@@ -211,6 +215,9 @@ class MainActivity : AppCompatActivity() {
     private var activeTrade: JSONObject? = null
     private var activeTradeSym = ""
 
+    private var accountBalance = 1000.0
+    private var riskPercent = 1.0
+
     private class LivePip(
         val tv: TextView, 
         val ring: RingView, 
@@ -242,6 +249,9 @@ class MainActivity : AppCompatActivity() {
         sharedPrefs = getSharedPreferences("SkyAiPrefs", Context.MODE_PRIVATE)
         selectedSymbol = sharedPrefs.getString("selectedSymbol", "XAUUSD") ?: "XAUUSD"
         selectedTf = sharedPrefs.getString("selectedTf", "M15") ?: "M15"
+        
+        accountBalance = sharedPrefs.getFloat("accountBalance", 1000f).toDouble()
+        riskPercent = sharedPrefs.getFloat("riskPercent", 1f).toDouble()
 
         bindViews()
         setupWindow()
@@ -270,6 +280,8 @@ class MainActivity : AppCompatActivity() {
             js("window.setTrade(null);")
         }
 
+        btnSettings.setOnClickListener { showSettingsDialog() }
+
         navHome.setOnClickListener { showTab(Tab.CHART) }
         navSignals.setOnClickListener { showTab(Tab.SIGNALS) }
         navHistory.setOnClickListener { showTab(Tab.HISTORY) }
@@ -285,6 +297,57 @@ class MainActivity : AppCompatActivity() {
         tvNewsStatus.text = "No news data received from the backend yet."
         updateSessionPanel()
         showTab(Tab.CHART)
+    }
+
+    private fun showSettingsDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+
+        val title = makeText("Risk Settings", 18f, Color.WHITE, true)
+        title.setPadding(0, 0, 0, dp(16))
+        layout.addView(title)
+
+        layout.addView(makeText("Account Balance ($)", 12f, MUTED))
+        val etBal = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(accountBalance.toString())
+            setTextColor(Color.WHITE)
+        }
+        layout.addView(etBal)
+
+        layout.addView(makeText("Risk Per Trade (%)", 12f, MUTED).apply { setPadding(0, dp(12), 0, 0) })
+        val etRisk = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(riskPercent.toString())
+            setTextColor(Color.WHITE)
+        }
+        layout.addView(etRisk)
+
+        AlertDialog.Builder(this)
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                accountBalance = etBal.text.toString().toDoubleOrNull() ?: 1000.0
+                riskPercent = etRisk.text.toString().toDoubleOrNull() ?: 1.0
+                sharedPrefs.edit().putFloat("accountBalance", accountBalance.toFloat()).apply()
+                sharedPrefs.edit().putFloat("riskPercent", riskPercent.toFloat()).apply()
+                renderLists()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun calculateLotSize(symbol: String, entry: Double, sl: Double): String {
+        if (entry.isNaN() || sl.isNaN() || entry == 0.0 || sl == 0.0) return "—"
+        
+        val riskAmount = accountBalance * (riskPercent / 100.0)
+        val pipsAtRisk = abs(entry - sl) / pipSize(symbol)
+        
+        val lotValue = 10.0
+        val lots = riskAmount / (pipsAtRisk * lotValue)
+        
+        return String.format(Locale.US, "%.2f lots", lots)
     }
 
     private fun bindViews() {
@@ -325,6 +388,8 @@ class MainActivity : AppCompatActivity() {
         tvLosses = findViewById(R.id.tvLosses)
         tvTotalPips = findViewById(R.id.tvTotalPips)
         tvWinRate = findViewById(R.id.tvWinRate)
+        tvBestPair = findViewById(R.id.tvBestPair)
+        btnSettings = findViewById(R.id.btnSettings)
         chatPanel = findViewById(R.id.chatPanel)
         chatScroll = findViewById(R.id.chatScroll)
         chatContainer = findViewById(R.id.chatContainer)
@@ -553,12 +618,21 @@ class MainActivity : AppCompatActivity() {
                 continue 
             }
             
-            // Calculate Pips directly (No waiting)
+            val isEntryHit = if (p.dir == "BUY") px <= p.entry else px >= p.entry
+            
+            if (!isEntryHit) {
+                p.tv.text = "Waiting Entry"
+                p.tv.setTextColor(AMBER)
+                p.ring.ringColor = AMBER
+                p.ring.label = "Wait"
+                p.ring.setPercent(0)
+                continue
+            }
+
             val v = pipsOf(p.sym, p.dir, p.entry, px)
             p.tv.text = fmtPips(v)
             p.tv.setTextColor(if (v >= 0) GREEN else RED)
 
-            // Calculate Trade Progress %
             val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
             val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.lastTp))
             
@@ -924,10 +998,22 @@ class MainActivity : AppCompatActivity() {
         lastSignalIds = ids
 
         var wins = 0; var losses = 0; var totalPips = 0.0; var anyPips = false
+        val pairPips = HashMap<String, Double>()
+        
         for (i in 0 until completed.length()) {
             val o = completed.optJSONObject(i) ?: continue
+            val sym = o.str("symbol").uppercase(Locale.US)
             when (o.str("result").uppercase(Locale.US)) { "WIN" -> wins++; "LOSS" -> losses++ }
-            pipsForSignal(o)?.let { totalPips += it.pips; anyPips = true }
+            pipsForSignal(o)?.let { 
+                totalPips += it.pips; anyPips = true 
+                pairPips[sym] = (pairPips[sym] ?: 0.0) + it.pips
+            }
+        }
+        
+        var bestPair = "—"
+        var bestPips = 0.0
+        for ((sym, pips) in pairPips) {
+            if (pips > bestPips) { bestPips = pips; bestPair = "$sym (+${fmtPips(bestPips)} pips)" }
         }
         
         tvPendingCount.text = "${validPending.length()} active"
@@ -935,8 +1021,11 @@ class MainActivity : AppCompatActivity() {
         tvWins.text = wins.toString(); tvLosses.text = losses.toString()
         tvTotalPips.text = if (anyPips) fmtPips(totalPips) else "—"
         tvTotalPips.setTextColor(if (!anyPips) Color.WHITE else if (totalPips >= 0) GREEN else RED)
+        
+        tvBestPair.text = "Best Pair: $bestPair"
+        
         val decided = wins + losses
-        tvWinRate.text = if (decided > 0) String.format(Locale.US, "Win rate: %.0f%% (%d wins of %d decided trades)", wins * 100.0 / decided, wins, decided) else "Win rate: — (no WIN/LOSS outcomes yet)"
+        tvWinRate.text = if (decided > 0) String.format(Locale.US, "Win rate: %.0f%% (%d/%d)", wins * 100.0 / decided, wins, decided) else "Win rate: —"
 
         allPending = validPending
         allCompleted = completed
@@ -1029,6 +1118,8 @@ class MainActivity : AppCompatActivity() {
             else -> MUTED
         }
 
+        val lotSizeStr = calculateLotSize(symbol, entry, sl)
+
         val card = col()
         card.setPadding(dp(14), dp(14), dp(14), dp(12))
         card.background = GradientDrawable(
@@ -1109,15 +1200,46 @@ class MainActivity : AppCompatActivity() {
             card.addView(row2)
         }
 
-        val conf = s.optJSONArray("confluence")
-        if (conf != null && conf.length() > 0) {
-            val items = ArrayList<String>()
-            for (i in 0 until minOf(conf.length(), 5)) {
-                val item = conf.opt(i)
-                val text = when (item) { is String -> item; is JSONObject -> item.str("label").ifEmpty { item.str("text") }; else -> "" }
-                if (text.isNotBlank()) items.add("✓ $text")
+        val lotRow = row().apply { setPadding(0, dp(8), 0, 0) }
+        lotRow.addView(priceBox("Lot Size", lotSizeStr, AMBER, 1f))
+        lotRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 2f) })
+        card.addView(lotRow)
+
+        // NEW: ANALYSIS FACTOR BREAKDOWN (Image 3)
+        val breakdown = s.optJSONObject("breakdown")
+        if (breakdown != null) {
+            val divider = View(this).apply {
+                setBackgroundColor(STROKE)
+                layoutParams = LinearLayout.LayoutParams(MATCH, dp(1)).also { it.topMargin = dp(12); it.bottomMargin = dp(10) }
             }
-            if (items.isNotEmpty()) card.addView(makeText(items.joinToString("    "), 10f, Color.parseColor("#C5CBD8")).apply { setPadding(0, dp(10), 0, 0) })
+            card.addView(divider)
+
+            fun addBreakdownRow(label: String, score: Int) {
+                val r = row().apply { setPadding(0, dp(3), 0, dp(3)) }
+                r.addView(makeText(label, 11f, Color.WHITE, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
+                r.addView(makeText("$score/20", 11f, if (score >= 14) GREEN else if (score >= 8) AMBER else RED, true))
+                card.addView(r)
+            }
+
+            addBreakdownRow("HTF alignment", breakdown.optInt("htf", 0))
+            addBreakdownRow("Liquidity", breakdown.optInt("liquidity", 0))
+            addBreakdownRow("Market structure", breakdown.optInt("structure", 0))
+            addBreakdownRow("FVG/OB confirmation", breakdown.optInt("fvg_ob", 0))
+            addBreakdownRow("Session and news", breakdown.optInt("session", 0))
+            
+            card.addView(makeText("Illustrative scoring only, not a prediction or measured win probability.", 9f, MUTED).apply { setPadding(0, dp(8), 0, 0) })
+        } else {
+            // Fallback for older signals that don't have the breakdown
+            val conf = s.optJSONArray("confluence")
+            if (conf != null && conf.length() > 0) {
+                val items = ArrayList<String>()
+                for (i in 0 until minOf(conf.length(), 5)) {
+                    val item = conf.opt(i)
+                    val text = when (item) { is String -> item; is JSONObject -> item.str("label").ifEmpty { item.str("text") }; else -> "" }
+                    if (text.isNotBlank()) items.add("✓ $text")
+                }
+                if (items.isNotEmpty()) card.addView(makeText(items.joinToString("    "), 10f, Color.parseColor("#C5CBD8")).apply { setPadding(0, dp(10), 0, 0) })
+            }
         }
 
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
