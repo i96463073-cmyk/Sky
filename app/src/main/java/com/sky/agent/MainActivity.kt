@@ -171,6 +171,7 @@ class MainActivity : AppCompatActivity() {
     private val STROKE = Color.parseColor("#2A3449")
     private val PURPLE = Color.parseColor("#8C52FF")
     private val PURPLE_L = Color.parseColor("#B388FF")
+    private val BLUE = Color.parseColor("#2196F3")
 
     private val handler = Handler(Looper.getMainLooper())
     private val inFlight = AtomicBoolean(false)
@@ -217,7 +218,7 @@ class MainActivity : AppCompatActivity() {
         val dir: String, 
         val entry: Double, 
         val sl: Double, 
-        val lastTp: Double // Changed to last TP
+        val lastTp: Double
     )
     private data class PipResult(val pips: Double, val estimated: Boolean)
     private val livePips = ArrayList<LivePip>()
@@ -552,7 +553,6 @@ class MainActivity : AppCompatActivity() {
                 continue 
             }
             
-            // Check if entry is triggered
             val isEntryHit = if (p.dir == "BUY") px <= p.entry else px >= p.entry
             
             if (!isEntryHit) {
@@ -564,12 +564,10 @@ class MainActivity : AppCompatActivity() {
                 continue
             }
 
-            // Calculate current Pips
             val v = pipsOf(p.sym, p.dir, p.entry, px)
             p.tv.text = fmtPips(v)
             p.tv.setTextColor(if (v >= 0) GREEN else RED)
 
-            // Calculate Trade Progress % (Towards LAST TP)
             val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
             val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.lastTp))
             
@@ -1033,6 +1031,14 @@ class MainActivity : AppCompatActivity() {
         val confRaw = s.num("confidence")
         val confidence: Int? = if (confRaw.isNaN()) null else (if (confRaw <= 1.0) confRaw * 100 else confRaw).toInt()
 
+        // Determine Quality Color
+        val qColor = when (quality) {
+            "HIGH" -> GREEN
+            "GOOD" -> PURPLE_L
+            "STANDARD" -> BLUE
+            else -> MUTED
+        }
+
         val card = col()
         card.setPadding(dp(14), dp(14), dp(14), dp(12))
         card.background = GradientDrawable(
@@ -1051,7 +1057,7 @@ class MainActivity : AppCompatActivity() {
         
         if (!isPending) { 
             if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
-            else { ring.label = quality.ifEmpty { "—" }; ring.setPercent(if (quality.isNotEmpty()) 100 else 0) }
+            else { ring.label = "—"; ring.setPercent(0) }
         } else {
             ring.label = "Wait"
             ring.setPercent(0)
@@ -1069,6 +1075,12 @@ class MainActivity : AppCompatActivity() {
         nameRow.addView(makeText(symbol, 17f, Color.WHITE, true))
         nameRow.addView(badge(direction, accent, Color.BLACK))
         if (tf.isNotEmpty()) nameRow.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
+        
+        // ✅ QUALITY BADGE
+        if (quality.isNotEmpty()) {
+            nameRow.addView(badge(quality, qColor, Color.BLACK))
+        }
+        
         info.addView(nameRow)
         info.addView(makeText(pairName(symbol), 10f, MUTED))
         if (whenRaw.isNotEmpty()) info.addView(makeText(formatTime(whenRaw), 10f, MUTED).apply { setPadding(0, dp(4), 0, 0) })
