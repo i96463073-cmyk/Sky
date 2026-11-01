@@ -164,7 +164,9 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 1500L
+    
+    // ✅ 1500L for real-time updates
+    private val POLL_MS = 1500L 
 
     private val BG = Color.parseColor("#0B0E14")
     private val CARD = Color.parseColor("#131824")
@@ -1205,7 +1207,6 @@ class MainActivity : AppCompatActivity() {
         lotRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 2f) })
         card.addView(lotRow)
 
-        // NEW: ANALYSIS FACTOR BREAKDOWN (Image 3)
         val breakdown = s.optJSONObject("breakdown")
         if (breakdown != null) {
             val divider = View(this).apply {
@@ -1229,7 +1230,6 @@ class MainActivity : AppCompatActivity() {
             
             card.addView(makeText("Illustrative scoring only, not a prediction or measured win probability.", 9f, MUTED).apply { setPadding(0, dp(8), 0, 0) })
         } else {
-            // Fallback for older signals that don't have the breakdown
             val conf = s.optJSONArray("confluence")
             if (conf != null && conf.length() > 0) {
                 val items = ArrayList<String>()
