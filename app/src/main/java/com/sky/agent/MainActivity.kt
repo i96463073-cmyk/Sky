@@ -48,7 +48,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.skyai.app.R
+import com.sky.agent.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
