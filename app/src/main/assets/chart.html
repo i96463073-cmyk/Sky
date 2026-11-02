@@ -8,7 +8,7 @@
 html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;font-family:Arial,sans-serif}
 #app{display:flex;height:100%}
 #tools{width:38px;background:#0B0E14;border-right:1px solid #1A2233;display:flex;flex-direction:column;align-items:center;padding-top:8px;z-index:10}
-.tg{width:32px;height:30px;margin-bottom:6px;border-radius:6px;border:1px solid #2A3449;color:#8A93A6;font-size:9px;font-weight:bold;display:flex;align-items:center;justify-content:center}
+.tg{width:32px;height:30px;margin-bottom:6px;border-radius:6px;border:1px solid #2A3449;color:#8A93A6;font-size:9px;font-weight:bold;display:flex;align-items:center;justify-content:center;text-align:center}
 .tg.on{color:#fff;background:rgba(140,82,255,.35);border-color:#8C52FF}
 #wrap{flex:1;display:flex;flex-direction:column;min-width:0}
 .pane{position:relative;min-height:50px}
@@ -31,7 +31,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;fon
     <div class="tg on" data-k="fvg">FVG</div>
     <div class="tg on" data-k="liq">LIQ</div>
     <div class="tg on" data-k="pd">P/D</div>
-    <div class="tg on" data-k="kill">Killzones</div>
+    <div class="tg on" data-k="kill">Kill</div>
+    <div class="tg on" data-k="trade">R:R</div>
   </div>
   <div id="wrap">
     <div id="chart" class="pane">
@@ -50,7 +51,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;fon
 <script>
 (function(){
 const $=id=>document.getElementById(id);
-const S={sym:'',key:'',bars:[],smc:null,trade:null,autoTrade:null,rev:0,show:{str:true,ob:true,fvg:true,liq:true,pd:true,kill:true}};
+const S={sym:'',key:'',bars:[],smc:null,trade:null,autoTrade:null,rev:0,needFit:false,show:{str:true,ob:true,fvg:true,liq:true,pd:true,kill:true,trade:true}};
 const TFL={M1:'1m',M5:'5m',M15:'15m',M30:'30m',H1:'1h',H4:'4h',D1:'1d'};
 const elChart=$('chart'),elRsi=$('rsi'),elVol=$('vol'),cv=$('ov'),ctx=cv.getContext('2d');
 let chart,series,rsiChart,rsiSeries,volChart,volSeries;
@@ -214,7 +215,7 @@ function draw(){
       const isNY = eatHour >= 16 && eatHour < 20;
 
       if(isL && !inLondon) { londonStart = i; inLondon = true; }
-      else if(!isL && inLondon) { 
+      else if(!isL && inLondon) {
         const x0 = X(londonStart), x1 = X(i);
         if(x0!=null && x1!=null) {
            ctx.fillStyle = 'rgba(33, 150, 243, 0.08)';
@@ -306,20 +307,40 @@ function draw(){
       tag(e.type,(x0+x1)/2,y+(e.dir>0?-9:9),col,'rgba(11,14,20,.8)','center');
     });
   }
+
+  // ---- TRADE VISUALISATION (risk = red, reward = green) ----
   const tr=S.trade||S.autoTrade;
-  if(tr){
-    let i0=idxOfTime(tr.t);if(i0<0)i0=Math.max(0,n-40);
-    let xs=X(i0);if(xs==null)xs=0;xs=Math.max(0,xs);
-    const far=tr.tps.length?tr.tps[tr.tps.length-1]:null;
-    if(far!=null)box(xs,pw,tr.entry,far,'rgba(0,230,118,.10)',null);
-    box(xs,pw,tr.entry,tr.sl,'rgba(255,59,92,.15)',null);
-    hline(xs,pw,tr.sl,'#FF3B5C',[],1.2);
-    tr.tps.forEach(p=>hline(xs,pw,p,'#00E676',[5,3],1));
-    hline(xs,pw,tr.entry,'#00B0FF',[],1.6);
-    tr.tps.forEach((p,k)=>{const y=Y(p);if(y!=null)tag('TP'+(k+1)+'  '+fmt(p),pw-4,y,'#fff','rgba(0,140,80,.9)','right');});
-    const ye=Y(tr.entry),ys=Y(tr.sl);
-    if(ye!=null)tag(tr.dir+' Entry  '+fmt(tr.entry),pw-4,ye,'#fff','rgba(0,120,200,.95)','right');
-    if(ys!=null)tag('SL  '+fmt(tr.sl),pw-4,ys,'#fff','rgba(200,40,70,.95)','right');
+  if(tr&&sh.trade){
+    const buy=tr.dir==='BUY';
+    const valid=buy
+      ? (tr.sl<tr.entry && tr.tps.every(p=>p>tr.entry))
+      : (tr.sl>tr.entry && tr.tps.every(p=>p<tr.entry));
+    if(!valid){
+      tag('Trade levels inconsistent - not drawn',pw-4,34,'#FFB300','rgba(11,14,20,.85)','right');
+    }else{
+      let i0=idxOfTime(tr.t);if(i0<0)i0=Math.max(0,n-40);
+      let xs=X(i0);if(xs==null)xs=0;xs=Math.max(0,xs);
+      const far=tr.tps.length?tr.tps[tr.tps.length-1]:null;
+      if(far!=null)box(xs,pw,tr.entry,far,'rgba(0,230,118,.12)',null);
+      box(xs,pw,tr.entry,tr.sl,'rgba(255,59,92,.16)',null);
+      hline(xs,pw,tr.sl,'#FF3B5C',[],1.2);
+      tr.tps.forEach(p=>hline(xs,pw,p,'#00E676',[5,3],1));
+      hline(xs,pw,tr.entry,'#00B0FF',[],1.6);
+
+      const risk=Math.abs(tr.entry-tr.sl);
+      const rr=(tr.tps.length&&risk>0)?Math.abs(tr.tps[0]-tr.entry)/risk:null;
+      const rt=[];
+      tr.tps.forEach((p,k)=>{const y=Y(p);if(y!=null)rt.push({y,text:'TP'+(k+1)+'  '+fmt(p),fg:'#fff',bg:'rgba(0,140,80,.92)'});});
+      const ye=Y(tr.entry);
+      if(ye!=null)rt.push({y:ye,text:tr.dir+'  '+fmt(tr.entry)+(rr!=null?'  RR 1:'+rr.toFixed(1):''),fg:'#fff',bg:'rgba(0,120,200,.95)'});
+      const ys=Y(tr.sl);
+      if(ys!=null)rt.push({y:ys,text:'SL  '+fmt(tr.sl)+'  (invalidation)',fg:'#fff',bg:'rgba(200,40,70,.95)'});
+      // avoid overlapping labels: sort by y and push apart
+      rt.sort((a,b)=>a.y-b.y);
+      for(let k=1;k<rt.length;k++){if(rt[k].y-rt[k-1].y<17)rt[k].y=rt[k-1].y+17;}
+      if(rt.length){const over=rt[rt.length-1].y-(h-10);if(over>0)rt.forEach(r=>{r.y-=over;});}
+      rt.forEach(r=>tag(r.text,pw-4,r.y,r.fg,r.bg,'right'));
+    }
   }
   ctx.restore();
 }
@@ -333,6 +354,13 @@ function setLegend(b){
   const ch=b.close-b.open,pc=b.open?ch/b.open*100:0;
   const el=$('lg-chg');el.textContent=(ch>=0?'+':'')+fmt(ch)+' ('+(pc>=0?'+':'')+pc.toFixed(2)+'%)';
   el.className=up?'green':'red';
+}
+
+function applyRange(){
+  const n=S.bars.length;
+  if(!n||!chart)return;
+  chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-80),to:n+10});
+  S.needFit=false;
 }
 
 function init(){
@@ -377,6 +405,7 @@ function init(){
     cv.style.width=w+'px';cv.style.height=h+'px';
     cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
+    if(S.needFit)applyRange();
     S.rev++;
   };
   window.addEventListener('resize',resize);
@@ -385,7 +414,7 @@ function init(){
 
   let sig='';
   let lastDraw = 0;
-  
+
   (function loop(timestamp){
     if (timestamp - lastDraw > 66 && S.bars.length){
       const r=chart.timeScale().getVisibleLogicalRange();
@@ -424,33 +453,30 @@ window.renderSignal=function(data,key){
     });
     const bars=Array.from(map.values()).sort((a,b)=>a.time-b.time);
     if(!bars.length)return;
-    
+
     S.sym=data.symbol||S.sym||'XAUUSD';
     const d=decs();
     series.applyOptions({priceFormat:{type:'price',precision:d,minMove:1/Math.pow(10,d)}});
-    
+
     S.bars=bars;
     series.setData(bars);
-    
+
     chart.priceScale('right').applyOptions({ autoScale: true });
-    
+
     rsiSeries.setData(calcRSI(bars.map(b=>b.close),14));
     volSeries.setData(bars.map(b=>({time:b.time,value:b.volume,color:b.close>=b.open?'rgba(0,230,118,.35)':'rgba(255,59,92,.35)'})));
-    
+
     S.smc=analyse(bars);
     S.autoTrade=normTrade(data.signal||data.setup||data.trade);
-    
+
     if(key!==S.key){
       S.key=key;
       S.trade=null;
-      
-      chart.timeScale().fitContent();
-      const n=bars.length;
-      if(n>0){
-        chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-80),to:n+10});
-      }
+      S.needFit=true;
     }
-    
+    // Fit only when the chart actually has a size (it may be hidden on another tab).
+    if(S.needFit&&elChart.clientWidth>0&&elChart.clientHeight>0)applyRange();
+
     const tfk=(key||'').split('|')[1];
     $('lg-sym').textContent=S.sym;
     $('lg-tf').textContent=m.timeframe||TFL[tfk]||tfk||'';
