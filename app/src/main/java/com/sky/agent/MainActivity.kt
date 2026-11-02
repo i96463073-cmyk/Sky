@@ -164,8 +164,6 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    
-    // ✅ 1500L for real-time updates
     private val POLL_MS = 1500L 
 
     private val BG = Color.parseColor("#0B0E14")
@@ -1162,6 +1160,11 @@ class MainActivity : AppCompatActivity() {
         if (quality.isNotEmpty()) {
             nameRow.addView(badge(quality, qColor, Color.BLACK))
         }
+
+        val isSd = s.optBoolean("is_sd", false)
+        if (isSd) {
+            nameRow.addView(badge("S&D", ColorUtils.setAlphaComponent(AMBER, 0x40), AMBER))
+        }
         
         info.addView(nameRow)
         info.addView(makeText(pairName(symbol), 10f, MUTED))
@@ -1215,18 +1218,19 @@ class MainActivity : AppCompatActivity() {
             }
             card.addView(divider)
 
-            fun addBreakdownRow(label: String, score: Int) {
+            fun addBreakdownRow(label: String, score: Int, max: Int) {
                 val r = row().apply { setPadding(0, dp(3), 0, dp(3)) }
                 r.addView(makeText(label, 11f, Color.WHITE, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
-                r.addView(makeText("$score/20", 11f, if (score >= 14) GREEN else if (score >= 8) AMBER else RED, true))
+                r.addView(makeText("$score/$max", 11f, if (score >= (max * 0.7)) GREEN else if (score >= (max * 0.4)) AMBER else RED, true))
                 card.addView(r)
             }
 
-            addBreakdownRow("HTF alignment", breakdown.optInt("htf", 0))
-            addBreakdownRow("Liquidity", breakdown.optInt("liquidity", 0))
-            addBreakdownRow("Market structure", breakdown.optInt("structure", 0))
-            addBreakdownRow("FVG/OB confirmation", breakdown.optInt("fvg_ob", 0))
-            addBreakdownRow("Session and news", breakdown.optInt("session", 0))
+            addBreakdownRow("HTF alignment", breakdown.optInt("htf", 0), 20)
+            addBreakdownRow("Liquidity", breakdown.optInt("liquidity", 0), 20)
+            addBreakdownRow("Market structure", breakdown.optInt("structure", 0), 20)
+            addBreakdownRow("FVG / OB confirmation", breakdown.optInt("fvg_ob", 0), 15)
+            addBreakdownRow("Supply / Demand Zone", breakdown.optInt("supply_demand", 0), 15)
+            addBreakdownRow("Session and news", breakdown.optInt("session", 0), 10)
             
             card.addView(makeText("Illustrative scoring only, not a prediction or measured win probability.", 9f, MUTED).apply { setPadding(0, dp(8), 0, 0) })
         } else {
