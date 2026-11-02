@@ -48,6 +48,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import com.skyai.app.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -117,9 +118,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scrollMain: ScrollView
 
     private lateinit var chartSection: LinearLayout
+    private lateinit var homeSection: LinearLayout
+    private lateinit var homeCards: LinearLayout
     private lateinit var signalsSection: LinearLayout
     private lateinit var historySection: LinearLayout
-    private lateinit var marketSection: LinearLayout
 
     private lateinit var chartCard: LinearLayout
     private lateinit var tvChartTitle: TextView
@@ -136,6 +138,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var completedContainer: LinearLayout
     private lateinit var newsContainer: LinearLayout
     private lateinit var tvStatus: TextView
+    private lateinit var tvSessionShort: TextView
     private lateinit var tvSession: TextView
     private lateinit var tvNewsStatus: TextView
     private lateinit var tvPendingCount: TextView
@@ -146,6 +149,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvWinRate: TextView
     private lateinit var tvBestPair: TextView
     private lateinit var chatPanel: LinearLayout
+    private lateinit var chatQuick: LinearLayout
     private lateinit var chatScroll: ScrollView
     private lateinit var chatContainer: LinearLayout
     private lateinit var etInput: EditText
@@ -153,9 +157,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCloseChat: TextView
     private lateinit var navHome: TextView
     private lateinit var navSignals: TextView
-    private lateinit var navNew: TextView
+    private lateinit var navCharts: TextView
     private lateinit var navHistory: TextView
-    private lateinit var navProfile: TextView
+    private lateinit var navChat: TextView
     private lateinit var btnSettings: TextView
 
     private lateinit var web: WebView
@@ -164,7 +168,8 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 1500L 
+    private val POLL_MS = 1500L
+    private val DAY_MS = 86_400_000L
 
     private val BG = Color.parseColor("#0B0E14")
     private val CARD = Color.parseColor("#131824")
@@ -215,22 +220,24 @@ class MainActivity : AppCompatActivity() {
     private var activeTrade: JSONObject? = null
     private var activeTradeSym = ""
 
-    private var accountBalance = 1000.0
+    // Manually entered by the user. -1 means "not set" (nothing is invented).
+    private var accountBalance = -1.0
     private var riskPercent = 1.0
+    private var sessionShort = "—"
 
     private class LivePip(
-        val tv: TextView, 
-        val ring: RingView, 
-        val sym: String, 
-        val dir: String, 
-        val entry: Double, 
-        val sl: Double, 
+        val tv: TextView,
+        val ring: RingView,
+        val sym: String,
+        val dir: String,
+        val entry: Double,
+        val sl: Double,
         val lastTp: Double
     )
     private data class PipResult(val pips: Double, val estimated: Boolean)
     private val livePips = ArrayList<LivePip>()
 
-    private enum class Tab { CHART, SIGNALS, HISTORY, MARKET }
+    private enum class Tab { HOME, SIGNALS, CHART, HISTORY }
 
     private val pollRunnable = object : Runnable {
         override fun run() {
@@ -249,8 +256,9 @@ class MainActivity : AppCompatActivity() {
         sharedPrefs = getSharedPreferences("SkyAiPrefs", Context.MODE_PRIVATE)
         selectedSymbol = sharedPrefs.getString("selectedSymbol", "XAUUSD") ?: "XAUUSD"
         selectedTf = sharedPrefs.getString("selectedTf", "M15") ?: "M15"
-        
-        accountBalance = sharedPrefs.getFloat("accountBalance", 1000f).toDouble()
+
+        accountBalance = if (sharedPrefs.contains("accountBalance"))
+            sharedPrefs.getFloat("accountBalance", -1f).toDouble() else -1.0
         riskPercent = sharedPrefs.getFloat("riskPercent", 1f).toDouble()
 
         bindViews()
@@ -259,6 +267,7 @@ class MainActivity : AppCompatActivity() {
         buildTicker(FALLBACK_SYMBOLS)
         buildTfChips()
         buildFilterChips()
+        buildChatQuick()
         setupChart()
         updateChartHeader()
 
@@ -270,7 +279,7 @@ class MainActivity : AppCompatActivity() {
         applyBounce(btnRefresh); applyBounce(btnSend); applyBounce(tvCloseChat)
         btnRefresh.setOnClickListener { fetchLive(manual = true); loadChart() }
         btnSend.setOnClickListener { sendChat() }
-        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE; navProfile.setTextColor(MUTED) }
+        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE; navChat.setTextColor(MUTED) }
         etInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendChat(); true } else false
         }
@@ -282,21 +291,21 @@ class MainActivity : AppCompatActivity() {
 
         btnSettings.setOnClickListener { showSettingsDialog() }
 
-        navHome.setOnClickListener { showTab(Tab.CHART) }
+        navHome.setOnClickListener { showTab(Tab.HOME) }
         navSignals.setOnClickListener { showTab(Tab.SIGNALS) }
+        navCharts.setOnClickListener { showTab(Tab.CHART) }
         navHistory.setOnClickListener { showTab(Tab.HISTORY) }
-        navNew.setOnClickListener { showTab(Tab.MARKET) }
-        navProfile.setOnClickListener {
+        navChat.setOnClickListener {
             val open = chatPanel.visibility != View.VISIBLE
             chatPanel.visibility = if (open) View.VISIBLE else View.GONE
-            navProfile.setTextColor(if (open) PURPLE_L else MUTED)
+            navChat.setTextColor(if (open) PURPLE_L else MUTED)
         }
 
         addEmptyText(pendingContainer, "Connecting to backend…")
         addEmptyText(completedContainer, "Connecting to backend…")
         tvNewsStatus.text = "No news data received from the backend yet."
         updateSessionPanel()
-        showTab(Tab.CHART)
+        showTab(Tab.HOME)
     }
 
     private fun showSettingsDialog() {
@@ -306,14 +315,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         val title = makeText("Risk Settings", 18f, Color.WHITE, true)
-        title.setPadding(0, 0, 0, dp(16))
+        title.setPadding(0, 0, 0, dp(8))
         layout.addView(title)
+        layout.addView(makeText("Used only to estimate position size. No broker account is connected.", 11f, MUTED).apply {
+            setPadding(0, 0, 0, dp(12))
+        })
 
-        layout.addView(makeText("Account Balance ($)", 12f, MUTED))
+        layout.addView(makeText("Account Balance (\$) - leave blank if unknown", 12f, MUTED))
         val etBal = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText(accountBalance.toString())
+            if (accountBalance > 0) setText(accountBalance.toString())
             setTextColor(Color.WHITE)
+            setHintTextColor(MUTED)
+            hint = "e.g. 1000"
         }
         layout.addView(etBal)
 
@@ -328,26 +342,40 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setView(layout)
             .setPositiveButton("Save") { _, _ ->
-                accountBalance = etBal.text.toString().toDoubleOrNull() ?: 1000.0
-                riskPercent = etRisk.text.toString().toDoubleOrNull() ?: 1.0
-                sharedPrefs.edit().putFloat("accountBalance", accountBalance.toFloat()).apply()
-                sharedPrefs.edit().putFloat("riskPercent", riskPercent.toFloat()).apply()
+                val b = etBal.text.toString().trim().toDoubleOrNull()
+                accountBalance = if (b != null && b > 0) b else -1.0
+                val r = etRisk.text.toString().trim().toDoubleOrNull()
+                riskPercent = if (r != null && r > 0 && r <= 10) r else 1.0
+                val ed = sharedPrefs.edit()
+                if (accountBalance > 0) ed.putFloat("accountBalance", accountBalance.toFloat()) else ed.remove("accountBalance")
+                ed.putFloat("riskPercent", riskPercent.toFloat()).apply()
                 renderLists()
+                renderHome()
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
+    // Approximate USD value of one pip for one standard lot, using the entry price for USD-base pairs.
+    private fun pipValuePerLot(sym: String, price: Double): Double {
+        val ps = pipSize(sym)
+        val contract = if (sym.contains("XAU")) 100.0 else 100000.0
+        return when {
+            sym.endsWith("USD") -> contract * ps
+            sym.startsWith("USD") && price > 0 -> contract * ps / price
+            else -> Double.NaN
+        }
+    }
+
     private fun calculateLotSize(symbol: String, entry: Double, sl: Double): String {
+        if (accountBalance <= 0) return "Set balance ⚙"
         if (entry.isNaN() || sl.isNaN() || entry == 0.0 || sl == 0.0) return "—"
-        
-        val riskAmount = accountBalance * (riskPercent / 100.0)
         val pipsAtRisk = abs(entry - sl) / pipSize(symbol)
-        
-        val lotValue = 10.0
-        val lots = riskAmount / (pipsAtRisk * lotValue)
-        
-        return String.format(Locale.US, "%.2f lots", lots)
+        val pv = pipValuePerLot(symbol, entry)
+        if (pipsAtRisk <= 0.0 || pv.isNaN() || pv <= 0.0) return "—"
+        val riskAmount = accountBalance * (riskPercent / 100.0)
+        val lots = riskAmount / (pipsAtRisk * pv)
+        return String.format(Locale.US, "~%.2f lots", lots)
     }
 
     private fun bindViews() {
@@ -361,9 +389,10 @@ class MainActivity : AppCompatActivity() {
         scrollMain = findViewById(R.id.scrollMain)
 
         chartSection = findViewById(R.id.chartSection)
+        homeSection = findViewById(R.id.homeSection)
+        homeCards = findViewById(R.id.homeCards)
         signalsSection = findViewById(R.id.signalsSection)
         historySection = findViewById(R.id.historySection)
-        marketSection = findViewById(R.id.marketSection)
 
         chartCard = findViewById(R.id.chartCard)
         tvChartTitle = findViewById(R.id.tvChartTitle)
@@ -380,6 +409,7 @@ class MainActivity : AppCompatActivity() {
         completedContainer = findViewById(R.id.completedContainer)
         newsContainer = findViewById(R.id.newsContainer)
         tvStatus = findViewById(R.id.tvStatus)
+        tvSessionShort = findViewById(R.id.tvSessionShort)
         tvSession = findViewById(R.id.tvSession)
         tvNewsStatus = findViewById(R.id.tvNewsStatus)
         tvPendingCount = findViewById(R.id.tvPendingCount)
@@ -391,6 +421,7 @@ class MainActivity : AppCompatActivity() {
         tvBestPair = findViewById(R.id.tvBestPair)
         btnSettings = findViewById(R.id.btnSettings)
         chatPanel = findViewById(R.id.chatPanel)
+        chatQuick = findViewById(R.id.chatQuick)
         chatScroll = findViewById(R.id.chatScroll)
         chatContainer = findViewById(R.id.chatContainer)
         etInput = findViewById(R.id.etInput)
@@ -398,9 +429,9 @@ class MainActivity : AppCompatActivity() {
         tvCloseChat = findViewById(R.id.tvCloseChat)
         navHome = findViewById(R.id.navHome)
         navSignals = findViewById(R.id.navSignals)
-        navNew = findViewById(R.id.navNew)
+        navCharts = findViewById(R.id.navCharts)
         navHistory = findViewById(R.id.navHistory)
-        navProfile = findViewById(R.id.navProfile)
+        navChat = findViewById(R.id.navChat)
     }
 
     override fun onResume() {
@@ -445,8 +476,8 @@ class MainActivity : AppCompatActivity() {
             GradientDrawable.Orientation.TL_BR, intArrayOf(PURPLE_L, Color.parseColor("#5B2BD9"))
         ).apply { cornerRadius = dpf(10f) }
 
-        val sp = SpannableString("SMC SIGNALS")
-        sp.setSpan(ForegroundColorSpan(PURPLE_L), 4, 11, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val sp = SpannableString("SKY AI PRO")
+        sp.setSpan(ForegroundColorSpan(PURPLE_L), 4, 10, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         tvBrand.text = sp
 
         statusPill.background = roundedBg(ColorUtils.setAlphaComponent(PURPLE, 0x18), dpf(14f), ColorUtils.setAlphaComponent(PURPLE_L, 0x80))
@@ -463,27 +494,29 @@ class MainActivity : AppCompatActivity() {
         if (t == Tab.CHART) {
             chartSection.visibility = View.VISIBLE
             scrollMain.visibility = View.GONE
+            loadChart()
         } else {
             chartSection.visibility = View.GONE
             scrollMain.visibility = View.VISIBLE
 
+            homeSection.visibility = if (t == Tab.HOME) View.VISIBLE else View.GONE
             signalsSection.visibility = if (t == Tab.SIGNALS) View.VISIBLE else View.GONE
             historySection.visibility = if (t == Tab.HISTORY) View.VISIBLE else View.GONE
-            marketSection.visibility = if (t == Tab.MARKET) View.VISIBLE else View.GONE
 
+            if (t == Tab.HOME) renderHome()
             scrollMain.post { scrollMain.scrollTo(0, 0) }
         }
 
         setNav(when (t) {
-            Tab.CHART -> navHome
+            Tab.HOME -> navHome
             Tab.SIGNALS -> navSignals
+            Tab.CHART -> navCharts
             Tab.HISTORY -> navHistory
-            Tab.MARKET -> navNew
         })
     }
 
     private fun setNav(active: TextView) {
-        listOf(navHome, navSignals, navHistory, navNew).forEach {
+        listOf(navHome, navSignals, navCharts, navHistory).forEach {
             it.setTextColor(if (it === active) PURPLE_L else MUTED)
         }
     }
@@ -565,6 +598,12 @@ class MainActivity : AppCompatActivity() {
         return if (a.isNaN()) s.num("sl") else a
     }
 
+    private fun confOf(s: JSONObject): Int? {
+        val c = s.num("confidence")
+        if (c.isNaN()) return null
+        return (if (c <= 1.0) c * 100 else c).toInt()
+    }
+
     private fun JSONObject.tps(): List<Double> {
         val out = ArrayList<Double>()
         val a = optJSONArray("take_profit") ?: optJSONArray("take_profits") ?: optJSONArray("targets")
@@ -613,13 +652,13 @@ class MainActivity : AppCompatActivity() {
     private fun refreshLivePips() {
         for (p in livePips) {
             val px = lastPrices[p.sym]
-            if (px == null || p.entry.isNaN() || p.sl.isNaN() || p.lastTp.isNaN()) { 
+            if (px == null || p.entry.isNaN() || p.sl.isNaN() || p.lastTp.isNaN()) {
                 p.tv.text = "—"
-                continue 
+                continue
             }
-            
+
             val isEntryHit = if (p.dir == "BUY") px <= p.entry else px >= p.entry
-            
+
             if (!isEntryHit) {
                 p.tv.text = "Waiting Entry"
                 p.tv.setTextColor(AMBER)
@@ -635,7 +674,7 @@ class MainActivity : AppCompatActivity() {
 
             val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
             val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.lastTp))
-            
+
             var livePercent = 0
             if (v >= 0) {
                 livePercent = if (totalReward > 0) ((v / totalReward) * 100).toInt() else 0
@@ -705,6 +744,7 @@ class MainActivity : AppCompatActivity() {
         hasData = true; lastOkTime = nowHms()
         tvUpdated.text = "Last successful refresh $lastOkTime"
         setStatus(State.LIVE); updateSessionPanel()
+        if (homeSection.visibility == View.VISIBLE) renderHome()
     }
 
     private fun onFailure(msg: String) {
@@ -715,6 +755,7 @@ class MainActivity : AppCompatActivity() {
             addEmptyText(pendingContainer, msg)
             addEmptyText(completedContainer, msg)
         }
+        if (homeSection.visibility == View.VISIBLE) renderHome()
     }
 
     private enum class State { LIVE, CONNECTING, OFFLINE }
@@ -805,8 +846,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildFilterChips() {
-        for (f in listOf("ALL", "BUY", "SELL")) {
-            val c = makeText(f, 12f, Color.WHITE, true).apply {
+        for (f in listOf("ALL", "BUY", "SELL", "HIGH")) {
+            val c = makeText(if (f == "HIGH") "HIGH QUALITY" else f, 12f, Color.WHITE, true).apply {
                 setPadding(dp(18), dp(7), dp(18), dp(7))
                 layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginEnd = dp(8) }
             }
@@ -820,7 +861,7 @@ class MainActivity : AppCompatActivity() {
     private fun styleFilterChips() {
         filterChips.forEach { (n, c) ->
             val on = n == dirFilter
-            val tint = when (n) { "BUY" -> GREEN; "SELL" -> RED; else -> PURPLE }
+            val tint = when (n) { "BUY" -> GREEN; "SELL" -> RED; "HIGH" -> AMBER; else -> PURPLE }
             c.setTextColor(if (on) Color.WHITE else MUTED)
             c.background = if (on) roundedBg(ColorUtils.setAlphaComponent(tint, 0x55), dpf(14f), tint)
             else roundedBg(Color.TRANSPARENT, dpf(14f), STROKE)
@@ -999,31 +1040,31 @@ class MainActivity : AppCompatActivity() {
 
         var wins = 0; var losses = 0; var totalPips = 0.0; var anyPips = false
         val pairPips = HashMap<String, Double>()
-        
+
         for (i in 0 until completed.length()) {
             val o = completed.optJSONObject(i) ?: continue
             val sym = o.str("symbol").uppercase(Locale.US)
             when (o.str("result").uppercase(Locale.US)) { "WIN" -> wins++; "LOSS" -> losses++ }
-            pipsForSignal(o)?.let { 
-                totalPips += it.pips; anyPips = true 
+            pipsForSignal(o)?.let {
+                totalPips += it.pips; anyPips = true
                 pairPips[sym] = (pairPips[sym] ?: 0.0) + it.pips
             }
         }
-        
+
         var bestPair = "—"
         var bestPips = 0.0
         for ((sym, pips) in pairPips) {
-            if (pips > bestPips) { bestPips = pips; bestPair = "$sym (+${fmtPips(bestPips)} pips)" }
+            if (pips > bestPips) { bestPips = pips; bestPair = "$sym (${fmtPips(bestPips)} pips)" }
         }
-        
+
         tvPendingCount.text = "${validPending.length()} active"
         tvCompletedCount.text = completed.length().toString()
         tvWins.text = wins.toString(); tvLosses.text = losses.toString()
         tvTotalPips.text = if (anyPips) fmtPips(totalPips) else "—"
         tvTotalPips.setTextColor(if (!anyPips) Color.WHITE else if (totalPips >= 0) GREEN else RED)
-        
+
         tvBestPair.text = "Best Pair: $bestPair"
-        
+
         val decided = wins + losses
         tvWinRate.text = if (decided > 0) String.format(Locale.US, "Win rate: %.0f%% (%d/%d)", wins * 100.0 / decided, wins, decided) else "Win rate: —"
 
@@ -1032,8 +1073,14 @@ class MainActivity : AppCompatActivity() {
         renderLists()
     }
 
-    private fun passes(o: JSONObject?): Boolean =
-        o != null && (dirFilter == "ALL" || o.str("direction").uppercase(Locale.US) == dirFilter)
+    private fun passes(o: JSONObject?): Boolean {
+        if (o == null) return false
+        return when (dirFilter) {
+            "ALL" -> true
+            "HIGH" -> o.str("quality").ifEmpty { o.str("grade") }.uppercase(Locale.US) == "HIGH"
+            else -> o.str("direction").uppercase(Locale.US) == dirFilter
+        }
+    }
 
     private fun renderLists() {
         livePips.clear()
@@ -1044,7 +1091,7 @@ class MainActivity : AppCompatActivity() {
             val o = allPending.optJSONObject(i)
             if (o != null && passes(o)) addSignalCard(pendingContainer, o, true, n++)
         }
-        if (n == 0) addEmptyText(pendingContainer, "No active signals right now.\nWaiting for a setup from the backend...")
+        if (n == 0) addEmptyText(pendingContainer, "No active signals right now.\nNO TRADE is a valid decision - the engine waits for a quality setup.")
 
         var m = 0
         for (i in 0 until allCompleted.length()) {
@@ -1095,6 +1142,19 @@ class MainActivity : AppCompatActivity() {
         return b
     }
 
+    private fun durationText(startRaw: String, endRaw: String): String? {
+        val a = parseIso(startRaw)?.time ?: return null
+        val b = parseIso(endRaw)?.time ?: return null
+        val ms = b - a
+        if (ms <= 0) return null
+        val mins = ms / 60_000
+        return when {
+            mins < 60 -> "${mins}m"
+            mins < 60 * 24 -> "${mins / 60}h ${mins % 60}m"
+            else -> "${mins / (60 * 24)}d ${(mins / 60) % 24}h"
+        }
+    }
+
     private fun addSignalCard(container: LinearLayout, s: JSONObject, isPending: Boolean, index: Int) {
         val symbol = s.str("symbol").ifEmpty { "UNKNOWN" }.uppercase(Locale.US)
         val direction = s.str("direction").uppercase(Locale.US).ifEmpty { "—" }
@@ -1108,8 +1168,7 @@ class MainActivity : AppCompatActivity() {
         val whenRaw = s.str("created_at").ifEmpty { s.str("time").ifEmpty { s.str("timestamp") } }
         val accent = when (direction) { "BUY" -> GREEN; "SELL" -> RED; else -> MUTED }
 
-        val confRaw = s.num("confidence")
-        val confidence: Int? = if (confRaw.isNaN()) null else (if (confRaw <= 1.0) confRaw * 100 else confRaw).toInt()
+        val confidence: Int? = confOf(s)
 
         val qColor = when (quality) {
             "HIGH" -> GREEN
@@ -1135,8 +1194,8 @@ class MainActivity : AppCompatActivity() {
         ringCol.gravity = Gravity.CENTER_HORIZONTAL
         val ring = RingView(this)
         ring.ringColor = accent
-        
-        if (!isPending) { 
+
+        if (!isPending) {
             if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
             else { ring.label = "—"; ring.setPercent(0) }
         } else {
@@ -1144,9 +1203,9 @@ class MainActivity : AppCompatActivity() {
             ring.setPercent(0)
             ring.ringColor = GREEN
         }
-        
+
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
-        ringCol.addView(makeText(if (isPending) "Progress" else "Confidence", 9f, MUTED).apply { gravity = Gravity.CENTER })
+        ringCol.addView(makeText(if (isPending) "Progress" else "Confluence", 9f, MUTED).apply { gravity = Gravity.CENTER })
         top.addView(ringCol)
 
         val info = col()
@@ -1156,7 +1215,7 @@ class MainActivity : AppCompatActivity() {
         nameRow.addView(makeText(symbol, 17f, Color.WHITE, true))
         nameRow.addView(badge(direction, accent, Color.BLACK))
         if (tf.isNotEmpty()) nameRow.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
-        
+
         if (quality.isNotEmpty()) {
             nameRow.addView(badge(quality, qColor, Color.BLACK))
         }
@@ -1165,7 +1224,7 @@ class MainActivity : AppCompatActivity() {
         if (isSd) {
             nameRow.addView(badge("S&D", ColorUtils.setAlphaComponent(AMBER, 0x40), AMBER))
         }
-        
+
         info.addView(nameRow)
         info.addView(makeText(pairName(symbol), 10f, MUTED))
         if (whenRaw.isNotEmpty()) info.addView(makeText(formatTime(whenRaw), 10f, MUTED).apply { setPadding(0, dp(4), 0, 0) })
@@ -1205,10 +1264,27 @@ class MainActivity : AppCompatActivity() {
             card.addView(row2)
         }
 
-        val lotRow = row().apply { setPadding(0, dp(8), 0, 0) }
-        lotRow.addView(priceBox("Lot Size", lotSizeStr, AMBER, 1f))
-        lotRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 2f) })
-        card.addView(lotRow)
+        if (isPending) {
+            val lotRow = row().apply { setPadding(0, dp(8), 0, 0) }
+            lotRow.addView(priceBox("Est. lot size", lotSizeStr, AMBER, 1f))
+            lotRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 2f) })
+            card.addView(lotRow)
+        } else {
+            // History details: closing price and duration, shown only when the backend provides them.
+            var exit = Double.NaN
+            for (k in listOf("exit_price", "close_price", "closed_price", "exit")) {
+                val v = s.num(k)
+                if (!v.isNaN()) { exit = v; break }
+            }
+            val dur = durationText(whenRaw, s.str("closed_at"))
+            if (!exit.isNaN() || dur != null) {
+                val hr = row().apply { setPadding(0, dp(8), 0, 0) }
+                hr.addView(priceBox("Close", if (exit.isNaN()) "—" else formatPrice(symbol, exit), Color.WHITE, 1f))
+                hr.addView(priceBox("Duration", dur ?: "—", Color.WHITE, 1f))
+                hr.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+                card.addView(hr)
+            }
+        }
 
         val breakdown = s.optJSONObject("breakdown")
         if (breakdown != null) {
@@ -1231,8 +1307,8 @@ class MainActivity : AppCompatActivity() {
             addBreakdownRow("FVG / OB confirmation", breakdown.optInt("fvg_ob", 0), 15)
             addBreakdownRow("Supply / Demand Zone", breakdown.optInt("supply_demand", 0), 15)
             addBreakdownRow("Session and news", breakdown.optInt("session", 0), 10)
-            
-            card.addView(makeText("Illustrative scoring only, not a prediction or measured win probability.", 9f, MUTED).apply { setPadding(0, dp(8), 0, 0) })
+
+            card.addView(makeText("Confluence score only, not a prediction or measured win probability.", 9f, MUTED).apply { setPadding(0, dp(8), 0, 0) })
         } else {
             val conf = s.optJSONArray("confluence")
             if (conf != null && conf.length() > 0) {
@@ -1247,15 +1323,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
-        
+
+        val backendStatus = s.str("status").uppercase(Locale.US).replace('_', ' ')
         val statusText = if (isPending) {
-            "● Active"
+            "● " + backendStatus.ifEmpty { "ACTIVE" }
         } else if (result.isNotEmpty()) {
             if (result == "WIN" && tpHit > 0 && tpHit < 3) "● WIN (TP$tpHit)" else "● $result"
         } else {
-            "● Closed"
+            "● " + backendStatus.ifEmpty { "CLOSED" }
         }
-        
+
         val statusColor = if (isPending) AMBER else when (result) { "WIN" -> GREEN; "LOSS" -> RED; else -> MUTED }
         bottom.addView(makeText(statusText, 11f, statusColor, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
         val btnChart = makeText("📈 View Chart", 11f, Color.WHITE, true).apply {
@@ -1271,6 +1348,139 @@ class MainActivity : AppCompatActivity() {
         card.alpha = 0f; card.translationX = dpf(20f); container.addView(card)
         card.animate().alpha(1f).translationX(0f).setStartDelay(index * 50L).setDuration(300).start()
     }
+
+    // ---------------- HOME ----------------
+
+    private fun homeCard(title: String): LinearLayout {
+        val c = col()
+        c.setPadding(dp(14), dp(12), dp(14), dp(12))
+        c.background = roundedBg(CARD, dpf(14f), STROKE)
+        c.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(12) }
+        c.addView(makeText(title, 11f, MUTED, true).apply { setPadding(0, 0, 0, dp(8)) })
+        homeCards.addView(c)
+        return c
+    }
+
+    private fun periodPips(): Triple<Double?, Double?, Double?> {
+        val now = System.currentTimeMillis()
+        var d = 0.0; var w = 0.0; var m = 0.0
+        var hd = false; var hw = false; var hm = false
+        for (i in 0 until allCompleted.length()) {
+            val o = allCompleted.optJSONObject(i) ?: continue
+            val p = pipsForSignal(o) ?: continue
+            val raw = o.str("closed_at").ifEmpty { o.str("created_at").ifEmpty { o.str("time").ifEmpty { o.str("timestamp") } } }
+            val t = parseIso(raw)?.time ?: continue
+            val age = now - t
+            if (age <= DAY_MS) { d += p.pips; hd = true }
+            if (age <= 7 * DAY_MS) { w += p.pips; hw = true }
+            if (age <= 30 * DAY_MS) { m += p.pips; hm = true }
+        }
+        return Triple(if (hd) d else null, if (hw) w else null, if (hm) m else null)
+    }
+
+    private fun renderHome() {
+        homeCards.removeAllViews()
+
+        // ---- Account (manual entry only; no broker connected) ----
+        val acc = homeCard("ACCOUNT")
+        if (accountBalance > 0) {
+            val r = row()
+            r.addView(priceBox("Balance (manual)", String.format(Locale.US, "\$%,.2f", accountBalance), Color.WHITE, 1f))
+            r.addView(priceBox("Risk / trade", String.format(Locale.US, "%.1f%%", riskPercent), PURPLE_L, 1f))
+            r.addView(priceBox("Risk amount", String.format(Locale.US, "\$%,.2f", accountBalance * riskPercent / 100.0), AMBER, 1f))
+            acc.addView(r)
+        } else {
+            acc.addView(makeText(
+                "No broker account connected, so equity, drawdown and open positions are not available. Tap ⚙ to enter a balance for position sizing only.",
+                12f, Color.parseColor("#C5CBD8")
+            ))
+        }
+        val (d, w, m) = periodPips()
+        fun pv(x: Double?): String = if (x == null) "—" else fmtPips(x)
+        fun pc(x: Double?): Int = if (x == null) Color.WHITE else if (x >= 0) GREEN else RED
+        val perf = row().apply { setPadding(0, dp(10), 0, 0) }
+        perf.addView(priceBox("Today (pips)", pv(d), pc(d), 1f))
+        perf.addView(priceBox("7 days (pips)", pv(w), pc(w), 1f))
+        perf.addView(priceBox("30 days (pips)", pv(m), pc(m), 1f))
+        acc.addView(perf)
+        acc.addView(makeText("Pips come from closed signal history (some are estimated).", 9f, MUTED).apply { setPadding(0, dp(6), 0, 0) })
+
+        // ---- AI intelligence overview ----
+        val ai = homeCard("AI INTELLIGENCE")
+        var buys = 0; var sells = 0
+        var best: JSONObject? = null
+        var bestC = -1
+        for (i in 0 until allPending.length()) {
+            val o = allPending.optJSONObject(i) ?: continue
+            val dir = o.str("direction").uppercase(Locale.US)
+            if (dir == "BUY") buys++ else if (dir == "SELL") sells++
+            val c = confOf(o) ?: -1
+            if (best == null || c > bestC) { best = o; bestC = c }
+        }
+        val total = buys + sells
+        val line1 = row()
+        line1.addView(priceBox("Active setups", allPending.length().toString(), Color.WHITE, 1f))
+        line1.addView(priceBox("Buy / Sell", "$buys / $sells", Color.WHITE, 1f))
+        line1.addView(priceBox("Session", sessionShort, PURPLE_L, 1f))
+        ai.addView(line1)
+        if (total > 0) {
+            val bar = row()
+            bar.layoutParams = LinearLayout.LayoutParams(MATCH, dp(8)).also { it.topMargin = dp(10); it.bottomMargin = dp(4) }
+            bar.addView(View(this).apply { setBackgroundColor(GREEN); layoutParams = LinearLayout.LayoutParams(0, MATCH, buys.toFloat()) })
+            bar.addView(View(this).apply { setBackgroundColor(RED); layoutParams = LinearLayout.LayoutParams(0, MATCH, sells.toFloat()) })
+            ai.addView(bar)
+        }
+        val b = best
+        val strongest = if (b != null) {
+            val head = b.str("symbol").uppercase(Locale.US) + " " + b.str("direction").uppercase(Locale.US)
+            if (bestC >= 0) "$head · $bestC% confluence" else head
+        } else "None. NO TRADE is a valid decision."
+        val line2 = row().apply { setPadding(0, dp(8), 0, 0) }
+        line2.addView(priceBox("Strongest setup", strongest, if (b != null) GREEN else MUTED, 2f))
+        line2.addView(priceBox("AI scan", if (hasData) "Scanning · $lastOkTime" else "Offline", if (hasData) GREEN else RED, 1.4f))
+        ai.addView(line2)
+        ai.addView(makeText("Bias shows only the direction mix of active setups, not a market forecast.", 9f, MUTED).apply { setPadding(0, dp(6), 0, 0) })
+
+        // ---- Best opportunities ----
+        val opp = homeCard("BEST AI OPPORTUNITIES")
+        val list = ArrayList<JSONObject>()
+        for (i in 0 until allPending.length()) allPending.optJSONObject(i)?.let { list.add(it) }
+        val top3 = list.sortedByDescending { confOf(it) ?: -1 }.take(3)
+        if (top3.isEmpty()) {
+            opp.addView(makeText("No active setups right now. The engine only publishes a signal when conditions are good.", 12f, Color.parseColor("#C5CBD8")))
+        }
+        for (o in top3) {
+            val sym = o.str("symbol").uppercase(Locale.US)
+            val dir = o.str("direction").uppercase(Locale.US)
+            val tf = o.str("timeframe")
+            val entry = o.num("entry")
+            val sl = slOf(o)
+            val tps = o.tps()
+            val acc2 = if (dir == "BUY") GREEN else if (dir == "SELL") RED else MUTED
+            val item = col()
+            item.setPadding(dp(10), dp(10), dp(10), dp(10))
+            item.background = roundedBg(Color.parseColor("#1B2130"), dpf(10f), ColorUtils.setAlphaComponent(acc2, 0x60))
+            item.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(8) }
+            val head = row().apply { gravity = Gravity.CENTER_VERTICAL }
+            head.addView(makeText(sym, 15f, Color.WHITE, true))
+            head.addView(badge(dir, acc2, Color.BLACK))
+            if (tf.isNotEmpty()) head.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
+            confOf(o)?.let { head.addView(badge("$it%", ColorUtils.setAlphaComponent(PURPLE, 0x55), PURPLE_L)) }
+            item.addView(head)
+            val rr = if (tps.isNotEmpty()) checkLevels(dir, entry, sl, tps[0]).first else null
+            val lv = row().apply { setPadding(0, dp(8), 0, 0) }
+            lv.addView(priceBox("Entry", formatPrice(sym, entry), Color.WHITE, 1f))
+            lv.addView(priceBox("SL", formatPrice(sym, sl), RED, 1f))
+            lv.addView(priceBox("TP1", if (tps.isNotEmpty()) formatPrice(sym, tps[0]) else "—", GREEN, 1f))
+            lv.addView(priceBox("R:R", rr?.let { String.format(Locale.US, "1:%.1f", it) } ?: "—", PURPLE_L, 1f))
+            item.addView(lv)
+            applyBounce(item)
+            item.setOnClickListener { openChartFor(sym, dir, entry, sl, tps, tf) }
+            opp.addView(item)
+        }
+    }
+
+    // ---------------- helpers ----------------
 
     private fun formatPrice(symbol: String, v: Double): String {
         if (v.isNaN() || v == 0.0 || v.isInfinite()) return "—"
@@ -1335,20 +1545,76 @@ class MainActivity : AppCompatActivity() {
         val dow = ny.get(Calendar.DAY_OF_WEEK)
         val nyMin = ny.get(Calendar.HOUR_OF_DAY) * 60 + ny.get(Calendar.MINUTE)
         val closed = dow == Calendar.SATURDAY || (dow == Calendar.FRIDAY && nyMin >= 17 * 60) || (dow == Calendar.SUNDAY && nyMin < 17 * 60)
-        if (closed) { tvSession.text = "Forex market closed (weekend)\nUTC now: $utc"; return }
+        if (closed) {
+            tvSession.text = "Forex market closed (weekend)\nUTC now: $utc"
+            sessionShort = "Closed"
+            tvSessionShort.text = "Market closed"
+            return
+        }
         val defs = listOf(Triple("Sydney", "Australia/Sydney", 7..15), Triple("Tokyo", "Asia/Tokyo", 9..17), Triple("London", "Europe/London", 8..16), Triple("New York", "America/New_York", 8..16))
         val active = defs.filter { cal(it.second).get(Calendar.HOUR_OF_DAY) in it.third }.map { it.first }
         val overlap = if ("London" in active && "New York" in active) "\nLondon–New York overlap active." else ""
         tvSession.text = "Active sessions: " + (if (active.isEmpty()) "none" else active.joinToString(", ")) + overlap + "\nUTC now: $utc"
+        sessionShort = if (active.isEmpty()) "Quiet" else active.joinToString(" · ")
+        tvSessionShort.text = sessionShort
     }
 
-    private fun sendChat() {
-        val text = etInput.text.toString().trim()
+    // ---------------- AI chat ----------------
+
+    private fun buildChatQuick() {
+        val items = listOf(
+            "Analyse XAUUSD", "Scan All Markets", "Find High-Quality Setups",
+            "Explain Latest Signal", "Analyse Market Structure", "Review Performance"
+        )
+        for (label in items) {
+            val c = makeText(label, 11f, Color.WHITE, true).apply {
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                background = roundedBg(ColorUtils.setAlphaComponent(PURPLE, 0x40), dpf(14f), PURPLE)
+                layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.marginEnd = dp(6) }
+            }
+            applyBounce(c)
+            c.setOnClickListener {
+                val prompt = quickPrompt(label)
+                if (prompt != null) sendChat(prompt)
+                else addBubble("There is no active signal to explain right now.", isUser = false)
+            }
+            chatQuick.addView(c)
+        }
+    }
+
+    private fun quickPrompt(label: String): String? = when (label) {
+        "Analyse XAUUSD" ->
+            "Analyse XAUUSD with Smart Money Concepts on M15 with H1/H4 context: structure, key levels, and whether a trade is justified. Say NO TRADE if conditions are poor."
+        "Scan All Markets" ->
+            "Scan XAUUSD, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD and NZDUSD. Rank them by setup quality and say NO TRADE where conditions are poor."
+        "Find High-Quality Setups" ->
+            "List only high-quality SMC setups right now with entry, stop loss, take profits and reasons. If there are none, say so."
+        "Explain Latest Signal" -> latestSignalPrompt()
+        "Analyse Market Structure" ->
+            "Analyse the current market structure (BOS, CHoCH, liquidity, order blocks) for $selectedSymbol on ${TF_LABELS[selectedTf] ?: selectedTf}."
+        "Review Performance" ->
+            "Review my signal performance: ${tvCompletedCount.text} closed, ${tvWins.text} wins, ${tvLosses.text} losses, total pips ${tvTotalPips.text}. ${tvWinRate.text}. Point out weaknesses and what to improve. Do not invent numbers."
+        else -> null
+    }
+
+    private fun latestSignalPrompt(): String? {
+        val o = allPending.optJSONObject(0) ?: return null
+        val sym = o.str("symbol").uppercase(Locale.US)
+        val dir = o.str("direction").uppercase(Locale.US)
+        val tf = o.str("timeframe")
+        val tps = o.tps().joinToString(", ") { formatPrice(sym, it) }
+        return "Explain this signal and its risks in plain language: $sym $dir $tf, entry ${formatPrice(sym, o.num("entry"))}, " +
+            "stop loss ${formatPrice(sym, slOf(o))}, take profits $tps."
+    }
+
+    private fun sendChat(override: String? = null) {
+        val text = (override ?: etInput.text.toString()).trim()
         if (text.isEmpty()) return
-        etInput.setText(""); chatPanel.visibility = View.VISIBLE
-        navProfile.setTextColor(PURPLE_L)
+        if (override == null) etInput.setText("")
+        chatPanel.visibility = View.VISIBLE
+        navChat.setTextColor(PURPLE_L)
         addBubble(text, isUser = true)
-        val typing = addBubble("Sky AI is thinking…", isUser = false)
+        val typing = addBubble("SKY AI is thinking…", isUser = false)
         btnSend.isEnabled = false
 
         thread {
