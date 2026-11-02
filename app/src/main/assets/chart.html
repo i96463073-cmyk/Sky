@@ -203,27 +203,21 @@ function draw(){
 
   ctx.save();ctx.beginPath();ctx.rect(0,0,pw,h);ctx.clip();
 
-  // 🌟 NEW: DRAW KILLZONES IN BACKGROUND (Kenyan Time EAT = UTC+3)
   if(sh.kill){
-    // We check every bar. If its UTC hour+3 is in the killzone, we shade it.
     let inLondon = false, inNY = false;
     let londonStart = -1, nyStart = -1;
 
     for(let i=0; i<n; i++){
       const utcHour = new Date(bars[i].time * 1000).getUTCHours();
       const eatHour = (utcHour + 3) % 24;
-      
-      // London: 11:00 - 15:00 EAT
       const isL = eatHour >= 11 && eatHour < 15;
-      // NY: 16:00 - 20:00 EAT
       const isNY = eatHour >= 16 && eatHour < 20;
 
       if(isL && !inLondon) { londonStart = i; inLondon = true; }
       else if(!isL && inLondon) { 
-        // Draw London Box
         const x0 = X(londonStart), x1 = X(i);
         if(x0!=null && x1!=null) {
-           ctx.fillStyle = 'rgba(33, 150, 243, 0.08)'; // Faint Blue
+           ctx.fillStyle = 'rgba(33, 150, 243, 0.08)';
            ctx.fillRect(x0, 0, x1-x0, h);
            ctx.strokeStyle = 'rgba(33, 150, 243, 0.3)';
            ctx.lineWidth = 1;
@@ -235,10 +229,9 @@ function draw(){
 
       if(isNY && !inNY) { nyStart = i; inNY = true; }
       else if(!isNY && inNY) {
-        // Draw NY Box
         const x0 = X(nyStart), x1 = X(i);
         if(x0!=null && x1!=null) {
-           ctx.fillStyle = 'rgba(255, 179, 0, 0.08)'; // Faint Orange
+           ctx.fillStyle = 'rgba(255, 179, 0, 0.08)';
            ctx.fillRect(x0, 0, x1-x0, h);
            ctx.strokeStyle = 'rgba(255, 179, 0, 0.3)';
            ctx.lineWidth = 1;
@@ -248,7 +241,6 @@ function draw(){
         inNY = false;
       }
     }
-    // Draw if still active at the end
     if(inLondon) {
         const x0 = X(londonStart), x1 = X(n-1);
         if(x0!=null && x1!=null) {
@@ -285,8 +277,8 @@ function draw(){
   if(sh.ob){
     const bull=sm.obs.filter(x=>x.dir===1&&!x.mit).slice(-3);
     const bear=sm.obs.filter(x=>x.dir===-1&&!x.mit).slice(-3);
-    bull.forEach(x=>box(X(x.i0),pw,x.top,x.bot,'rgba(0,230,118,.16)','#00E676','Bullish OB','#B8FFD9'));
-    bear.forEach(x=>box(X(x.i0),pw,x.top,x.bot,'rgba(255,59,92,.18)','#FF3B5C','Bearish OB','#FFC2CC'));
+    bull.forEach(x=>box(X(x.i0),pw,x.top,x.bot,'rgba(0,230,118,.16)','#00E676','Demand Zone','#B8FFD9'));
+    bear.forEach(x=>box(X(x.i0),pw,x.top,x.bot,'rgba(255,59,92,.18)','#FF3B5C','Supply Zone','#FFC2CC'));
   }
   if(sh.liq){
     sm.liq.forEach(l=>{
