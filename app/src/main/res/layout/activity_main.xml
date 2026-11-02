@@ -22,7 +22,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:gravity="center"
-            android:text="M"
+            android:text="S"
             android:textColor="#FFFFFF"
             android:textSize="22sp"
             android:textStyle="bold" />
@@ -38,18 +38,28 @@
                 android:id="@+id/tvBrand"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="SMC SIGNALS"
+                android:text="SKY AI PRO"
                 android:textColor="#FFFFFF"
-                android:textSize="22sp"
+                android:textSize="21sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Smart Money Concepts • AI Powered"
+                android:text="INSTITUTIONAL AI TRADING INTELLIGENCE"
                 android:textColor="#C5CBD8"
-                android:textSize="10sp" />
+                android:textSize="8sp" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnSettings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:padding="6dp"
+            android:text="⚙"
+            android:textColor="#B388FF"
+            android:textSize="20sp" />
 
         <LinearLayout
             android:id="@+id/statusPill"
@@ -71,9 +81,10 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/tvSessionShort"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Not financial advice"
+                android:text="Session —"
                 android:textColor="#8A93A6"
                 android:textSize="9sp" />
         </LinearLayout>
@@ -114,13 +125,14 @@
         android:indeterminate="true"
         android:visibility="gone" />
 
-    <!-- ================= SCREEN 1: CHARTS ================= -->
+    <!-- ================= CHARTS ================= -->
     <LinearLayout
         android:id="@+id/chartSection"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:visibility="gone">
 
         <LinearLayout
             android:id="@+id/chartCard"
@@ -209,7 +221,6 @@
                 android:textSize="11sp"
                 android:visibility="gone" />
 
-            <!-- WebView fills the rest of the screen -->
             <FrameLayout
                 android:id="@+id/chartFrame"
                 android:layout_width="match_parent"
@@ -218,14 +229,13 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- ================= SCREENS 2, 3, 4 (SCROLLABLE) ================= -->
+    <!-- ================= HOME / SIGNALS / HISTORY (SCROLLABLE) ================= -->
     <ScrollView
         android:id="@+id/scrollMain"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true"
-        android:visibility="gone">
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -233,7 +243,69 @@
             android:orientation="vertical"
             android:padding="12dp">
 
-            <!-- ================= SCREEN 2: SIGNALS ================= -->
+            <!-- ================= HOME ================= -->
+            <LinearLayout
+                android:id="@+id/homeSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/homeCards"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="MARKET SESSIONS"
+                    android:textColor="#8A93A6"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvSession"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="NEWS"
+                    android:textColor="#8A93A6"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvNewsStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="#C5CBD8"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:id="@+id/newsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Analysis and signals only. Not financial advice. Targets are configurable, not guaranteed profits."
+                    android:textColor="#8A93A6"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- ================= SIGNALS ================= -->
             <LinearLayout
                 android:id="@+id/signalsSection"
                 android:layout_width="match_parent"
@@ -253,7 +325,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="⚡ Trading Signals"
+                        android:text="⚡ Signals Center"
                         android:textColor="#FFFFFF"
                         android:textSize="18sp"
                         android:textStyle="bold" />
@@ -280,17 +352,6 @@
                         android:text="0 active"
                         android:textColor="#8A93A6"
                         android:textSize="12sp" />
-                        
-                    <!-- ✅ NEW: SETTINGS ICON -->
-                    <TextView
-                        android:id="@+id/btnSettings"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:padding="4dp"
-                        android:text="⚙"
-                        android:textColor="#8A93A6"
-                        android:textSize="18sp" />
                 </LinearLayout>
 
                 <HorizontalScrollView
@@ -313,7 +374,7 @@
                     android:orientation="vertical" />
             </LinearLayout>
 
-            <!-- ================= SCREEN 3: HISTORY ================= -->
+            <!-- ================= HISTORY ================= -->
             <LinearLayout
                 android:id="@+id/historySection"
                 android:layout_width="match_parent"
@@ -433,8 +494,7 @@
                                 android:textSize="10sp" />
                         </LinearLayout>
                     </LinearLayout>
-                    
-                    <!-- ✅ NEW: BEST PAIR & WIN RATE ROW -->
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -468,52 +528,6 @@
                     android:orientation="vertical" />
             </LinearLayout>
 
-            <!-- ================= SCREEN 4: MARKET ================= -->
-            <LinearLayout
-                android:id="@+id/marketSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="MARKET SESSIONS"
-                    android:textColor="#8A93A6"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-                <TextView
-                    android:id="@+id/tvSession"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="#FFFFFF"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="NEWS"
-                    android:textColor="#8A93A6"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-                <TextView
-                    android:id="@+id/tvNewsStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="#C5CBD8"
-                    android:textSize="12sp" />
-                <LinearLayout
-                    android:id="@+id/newsContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-            </LinearLayout>
-
             <View android:layout_width="match_parent" android:layout_height="24dp" />
         </LinearLayout>
     </ScrollView>
@@ -522,7 +536,7 @@
     <LinearLayout
         android:id="@+id/chatPanel"
         android:layout_width="match_parent"
-        android:layout_height="300dp"
+        android:layout_height="340dp"
         android:background="#131824"
         android:orientation="vertical"
         android:padding="10dp"
@@ -537,7 +551,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Sky AI Chat"
+                android:text="SKY AI Assistant"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -550,6 +564,19 @@
                 android:textColor="#FFFFFF"
                 android:textSize="16sp" />
         </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/chatQuick"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
 
         <ScrollView
             android:id="@+id/chatScroll"
@@ -574,7 +601,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Ask Sky AI…"
+                android:hint="Ask SKY AI…"
                 android:imeOptions="actionSend"
                 android:inputType="text"
                 android:maxLines="3"
@@ -593,7 +620,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- BOTTOM NAVIGATION -->
+    <!-- BOTTOM NAVIGATION: HOME / SIGNALS / CHARTS / HISTORY / AI CHAT -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -608,7 +635,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="📈\nCharts"
+            android:text="🏠\nHome"
             android:textColor="#B388FF"
             android:textSize="11sp" />
 
@@ -623,6 +650,16 @@
             android:textSize="11sp" />
 
         <TextView
+            android:id="@+id/navCharts"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="📈\nCharts"
+            android:textColor="#8A93A6"
+            android:textSize="11sp" />
+
+        <TextView
             android:id="@+id/navHistory"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -633,17 +670,7 @@
             android:textSize="11sp" />
 
         <TextView
-            android:id="@+id/navNew"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="🌍\nMarket"
-            android:textColor="#8A93A6"
-            android:textSize="11sp" />
-
-        <TextView
-            android:id="@+id/navProfile"
+            android:id="@+id/navChat"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
