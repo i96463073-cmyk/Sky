@@ -431,7 +431,20 @@ function init(){
 window.tick=function(p){
   if(!series||!S.bars.length)return;
   p=Number(p);if(!Number.isFinite(p))return;
-  const last=S.bars[S.bars.length-1];
+  const bars=S.bars,last=bars[bars.length-1];
+  // Backend candles are the source of truth. Ignore ticks far outside recent range
+  // (bad tick or a different price feed); the next refresh brings the real candle.
+  let sum=0,cnt=0;
+  for(let i=Math.max(0,bars.length-15);i<bars.length;i++){sum+=bars[i].high-bars[i].low;cnt++;}
+  const avg=cnt?sum/cnt:0;
+  if(avg>0&&Math.abs(p-last.close)>avg*6)return;
+  // If the current candle's period is over, start a new candle instead of stretching the old one.
+  const per=S.tfSec||0,now=Math.floor(Date.now()/1000);
+  if(per>0&&now>=last.time+per){
+    const t=last.time+Math.floor((now-last.time)/per)*per;
+    const nb={time:t,open:p,high:p,low:p,close:p,volume:0};
+    bars.push(nb);series.update(nb);setLegend(nb);return;
+  }
   last.close=p;last.high=Math.max(last.high,p);last.low=Math.min(last.low,p);
   series.update({time:last.time,open:last.open,high:last.high,low:last.low,close:last.close});
   setLegend(last);
@@ -478,6 +491,7 @@ window.renderSignal=function(data,key){
     if(S.needFit&&elChart.clientWidth>0&&elChart.clientHeight>0)applyRange();
 
     const tfk=(key||'').split('|')[1];
+    S.tfSec=({M1:60,M5:300,M15:900,M30:1800,H1:3600,H4:14400,D1:86400})[tfk]||0;
     $('lg-sym').textContent=S.sym;
     $('lg-tf').textContent=m.timeframe||TFL[tfk]||tfk||'';
     setLegend(bars[bars.length-1]);
