@@ -181,6 +181,7 @@ class MainActivity : AppCompatActivity() {
     private val PURPLE = Color.parseColor("#8C52FF")
     private val PURPLE_L = Color.parseColor("#B388FF")
     private val BLUE = Color.parseColor("#2196F3")
+    private val SOFT = Color.parseColor("#C5CBD8")
 
     private val handler = Handler(Looper.getMainLooper())
     private val inFlight = AtomicBoolean(false)
@@ -210,7 +211,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sharedPrefs: android.content.SharedPreferences
     private var toneGenerator: ToneGenerator? = null
     private var vibrator: Vibrator? = null
-    private var lastSignalIds: Set<String> = emptySet()
+    private var lastPhases: Map<String, Phase> = emptyMap()
     private var signalsSeen = false
 
     private var allPending = JSONArray()
@@ -225,14 +226,19 @@ class MainActivity : AppCompatActivity() {
     private var riskPercent = 1.0
     private var sessionShort = "—"
 
+    /** Where a signal is in its life: forming → waiting for entry → live → closed. */
+    private enum class Phase { WATCH, WAITING, ACTIVE, WIN, LOSS, CLOSED }
+
     private class LivePip(
         val tv: TextView,
+        val sub: TextView,
         val ring: RingView,
         val sym: String,
         val dir: String,
         val entry: Double,
         val sl: Double,
-        val lastTp: Double
+        val lastTp: Double,
+        val phase: Phase
     )
     private data class PipResult(val pips: Double, val estimated: Boolean)
     private val livePips = ArrayList<LivePip>()
@@ -620,6 +626,79 @@ class MainActivity : AppCompatActivity() {
         return out
     }
 
+    // ---------------- TRADE PHASE ----------------
+
+    /**
+     * Works out where a signal is in its life.
+     * Uses the backend fields `watch`, `entered` and `entryStatus`; older records
+     * without them fall back to entryStatus only.
+     */
+    private fun phaseOf(s: JSONObject, isPending: Boolean): Phase {
+        if (!isPending) {
+            return when (s.str("result").uppercase(Locale.US)) {
+                "WIN" -> Phase.WIN
+                "LOSS" -> Phase.LOSS
+                else -> Phase.CLOSED
+            }
+        }
+        if (s.optBoolean("watch", false)) return Phase.WATCH
+        val es = s.str("entryStatus").uppercase(Locale.US)
+        val entered = if (s.has("entered") && !s.isNull("entered")) s.optBoolean("entered", true)
+        else !es.startsWith("WAITING")
+        return if (entered) Phase.ACTIVE else Phase.WAITING
+    }
+
+    private fun phaseColor(p: Phase): Int = when (p) {
+        Phase.WATCH -> PURPLE_L
+        Phase.WAITING -> AMBER
+        Phase.ACTIVE -> GREEN
+        Phase.WIN -> GREEN
+        Phase.LOSS -> RED
+        Phase.CLOSED -> MUTED
+    }
+
+    private fun phaseTitle(p: Phase): String = when (p) {
+        Phase.WATCH -> "👀  WATCHLIST · NOT TRADABLE YET"
+        Phase.WAITING -> "⏳  WAITING FOR ENTRY"
+        Phase.ACTIVE -> "🟢  ACTIVE TRADE"
+        Phase.WIN -> "✅  CLOSED · WIN"
+        Phase.LOSS -> "❌  CLOSED · LOSS"
+        Phase.CLOSED -> "⚪  CLOSED"
+    }
+
+    private fun phaseDetail(p: Phase, s: JSONObject, symbol: String, entry: Double, tps: List<Double>): String {
+        val tpHit = s.optInt("tp_hit", 0)
+        return when (p) {
+            Phase.WATCH -> "Setup is still forming. Do NOT enter yet. You'll get an alert if it confirms."
+            Phase.WAITING -> when (s.str("entryStatus").uppercase(Locale.US)) {
+                "WAITING_FOR_RETEST" -> "Waiting for price to retest the Order Block near ${formatPrice(symbol, entry)}. Don't chase."
+                "WAITING_FOR_CONFIRMATION" -> "Price is inside the Order Block. Wait for a confirmation candle."
+                else -> "Waiting for price to reach ${formatPrice(symbol, entry)}."
+            }
+            Phase.ACTIVE -> {
+                val steps = tps.indices.take(3).joinToString("  ·  ") { if (it < tpHit) "TP${it + 1} ✓" else "TP${it + 1}" }
+                "Entry filled" + if (steps.isNotEmpty()) "  ·  $steps" else ""
+            }
+            Phase.WIN -> if (tpHit > 0) "Closed in profit after reaching TP$tpHit." else "Closed in profit."
+            Phase.LOSS -> "Stop loss was hit before any target."
+            Phase.CLOSED -> ""
+        }
+    }
+
+    private fun phaseCounts(arr: JSONArray): Triple<Int, Int, Int> {
+        var a = 0; var w = 0; var wl = 0
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            when (phaseOf(o, true)) {
+                Phase.ACTIVE -> a++
+                Phase.WAITING -> w++
+                Phase.WATCH -> wl++
+                else -> {}
+            }
+        }
+        return Triple(a, w, wl)
+    }
+
     private fun pipsForSignal(s: JSONObject): PipResult? {
         val sym = s.str("symbol").uppercase(Locale.US)
         val dir = s.str("direction").uppercase(Locale.US)
@@ -649,44 +728,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Refreshes live numbers on cards: distance-to-entry for waiting trades, floating pips for active ones. */
     private fun refreshLivePips() {
         for (p in livePips) {
             val px = lastPrices[p.sym]
-            if (px == null || p.entry.isNaN() || p.sl.isNaN() || p.lastTp.isNaN()) {
+            if (px == null || p.entry.isNaN() || p.sl.isNaN()) {
                 p.tv.text = "—"
                 continue
             }
+            val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
 
-            val isEntryHit = if (p.dir == "BUY") px <= p.entry else px >= p.entry
-
-            if (!isEntryHit) {
-                p.tv.text = "Waiting Entry"
+            if (p.phase == Phase.WAITING) {
+                // Positive = price still on the "far" side of the entry, negative = already touched/crossed.
+                val away = pipsOf(p.sym, p.dir, p.entry, px)
                 p.tv.setTextColor(AMBER)
+                p.sub.text = "pips to entry"
                 p.ring.ringColor = AMBER
                 p.ring.label = "Wait"
-                p.ring.setPercent(0)
+                if (away <= 0.5) {
+                    p.tv.text = "AT ENTRY"
+                    p.tv.textSize = 15f
+                    p.ring.setPercent(100)
+                } else {
+                    p.tv.text = String.format(Locale.US, "%.1f", away)
+                    p.tv.textSize = 20f
+                    val closeness = if (totalRisk > 0) (100.0 - (away / (totalRisk * 3.0)) * 100.0) else 0.0
+                    p.ring.setPercent(closeness.toInt().coerceIn(0, 100))
+                }
                 continue
             }
+
+            if (p.phase != Phase.ACTIVE || p.lastTp.isNaN()) continue
 
             val v = pipsOf(p.sym, p.dir, p.entry, px)
             p.tv.text = fmtPips(v)
             p.tv.setTextColor(if (v >= 0) GREEN else RED)
 
-            val totalRisk = abs(pipsOf(p.sym, p.dir, p.entry, p.sl))
             val totalReward = abs(pipsOf(p.sym, p.dir, p.entry, p.lastTp))
-
-            var livePercent = 0
             if (v >= 0) {
-                livePercent = if (totalReward > 0) ((v / totalReward) * 100).toInt() else 0
+                val pct = if (totalReward > 0) ((v / totalReward) * 100).toInt() else 0
                 p.ring.ringColor = GREEN
-                p.ring.label = "+$livePercent%"
-                p.ring.setPercent(livePercent.coerceIn(0, 100), animate = true)
+                p.ring.label = "+$pct%"
+                p.ring.setPercent(pct.coerceIn(0, 100), animate = true)
             } else {
-                val drawdown = abs(v)
-                livePercent = if (totalRisk > 0) ((drawdown / totalRisk) * 100).toInt() else 0
+                val pct = if (totalRisk > 0) ((abs(v) / totalRisk) * 100).toInt() else 0
                 p.ring.ringColor = RED
-                p.ring.label = "-$livePercent%"
-                p.ring.setPercent(livePercent.coerceIn(0, 100), animate = true)
+                p.ring.label = "-$pct%"
+                p.ring.setPercent(pct.coerceIn(0, 100), animate = true)
             }
         }
     }
@@ -1016,27 +1104,32 @@ class MainActivity : AppCompatActivity() {
         if (sig == lastSignalsSig) return
         lastSignalsSig = sig
 
+        // Hide stale watchlist / unfilled setups after 12h. Live trades are never hidden.
         val validPending = JSONArray()
         val now = System.currentTimeMillis()
         for (i in 0 until pending.length()) {
             val o = pending.optJSONObject(i) ?: continue
-            val timeStr = o.str("created_at").ifEmpty { o.str("time").ifEmpty { o.str("timestamp") } }
-            val date = parseIso(timeStr)
-            if (date != null) {
-                val ageMs = now - date.time
-                if (ageMs > 12 * 60 * 60 * 1000L) continue
+            if (phaseOf(o, true) != Phase.ACTIVE) {
+                val timeStr = o.str("created_at").ifEmpty { o.str("time").ifEmpty { o.str("timestamp") } }
+                val date = parseIso(timeStr)
+                if (date != null && now - date.time > 12 * 60 * 60 * 1000L) continue
             }
             validPending.put(o)
         }
 
-        val ids = mutableSetOf<String>()
+        // Alert when a tradable setup appears or a setup moves to a new phase (e.g. watch → waiting → active).
+        val phases = HashMap<String, Phase>()
         for (i in 0 until validPending.length()) {
-            val id = validPending.optJSONObject(i)?.str("id")
-            if (!id.isNullOrEmpty()) ids.add(id)
+            val o = validPending.optJSONObject(i) ?: continue
+            val id = o.str("id")
+            if (id.isNotEmpty()) phases[id] = phaseOf(o, true)
         }
-        if (signalsSeen && !lastSignalIds.containsAll(ids)) triggerAlert()
+        if (signalsSeen) {
+            val changed = phases.any { (id, ph) -> ph != Phase.WATCH && lastPhases[id] != ph }
+            if (changed) triggerAlert()
+        }
         signalsSeen = true
-        lastSignalIds = ids
+        lastPhases = phases
 
         var wins = 0; var losses = 0; var totalPips = 0.0; var anyPips = false
         val pairPips = HashMap<String, Double>()
@@ -1057,7 +1150,8 @@ class MainActivity : AppCompatActivity() {
             if (pips > bestPips) { bestPips = pips; bestPair = "$sym (${fmtPips(bestPips)} pips)" }
         }
 
-        tvPendingCount.text = "${validPending.length()} active"
+        val (nActive, nWaiting, nWatch) = phaseCounts(validPending)
+        tvPendingCount.text = "$nActive active · $nWaiting waiting · $nWatch watch"
         tvCompletedCount.text = completed.length().toString()
         tvWins.text = wins.toString(); tvLosses.text = losses.toString()
         tvTotalPips.text = if (anyPips) fmtPips(totalPips) else "—"
@@ -1082,14 +1176,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun addGroupHeader(container: LinearLayout, text: String, color: Int) {
+        val h = makeText(text, 11f, color, true)
+        h.setPadding(dp(2), dp(4), 0, dp(8))
+        h.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP)
+        container.addView(h)
+    }
+
     private fun renderLists() {
         livePips.clear()
         pendingContainer.removeAllViews(); completedContainer.removeAllViews()
 
+        // Pending signals grouped by phase: live trades first, then waiting, then watchlist.
+        val all = (0 until allPending.length()).mapNotNull { allPending.optJSONObject(it) }.filter { passes(it) }
+        val groups = listOf(
+            Triple(Phase.ACTIVE, "🟢 ACTIVE TRADES", GREEN),
+            Triple(Phase.WAITING, "⏳ WAITING FOR ENTRY", AMBER),
+            Triple(Phase.WATCH, "👀 WATCHLIST · NOT ENTERED", PURPLE_L)
+        )
         var n = 0
-        for (i in 0 until allPending.length()) {
-            val o = allPending.optJSONObject(i)
-            if (o != null && passes(o)) addSignalCard(pendingContainer, o, true, n++)
+        for ((ph, title, color) in groups) {
+            val items = all.filter { phaseOf(it, true) == ph }
+            if (items.isEmpty()) continue
+            addGroupHeader(pendingContainer, "$title (${items.size})", color)
+            for (o in items) addSignalCard(pendingContainer, o, true, n++)
         }
         if (n == 0) addEmptyText(pendingContainer, "No active signals right now.\nNO TRADE is a valid decision - the engine waits for a quality setup.")
 
@@ -1134,9 +1244,9 @@ class MainActivity : AppCompatActivity() {
         return t
     }
 
-    private fun priceBox(label: String, value: String, color: Int, weight: Float): LinearLayout {
+    private fun priceBox(label: String, value: String, color: Int, weight: Float, labelColor: Int = MUTED): LinearLayout {
         val b = col()
-        b.addView(makeText(label, 9f, MUTED))
+        b.addView(makeText(label, 9f, labelColor))
         b.addView(makeText(value, 13f, color, true))
         b.layoutParams = LinearLayout.LayoutParams(0, WRAP, weight)
         return b
@@ -1161,13 +1271,14 @@ class MainActivity : AppCompatActivity() {
         val entry = s.num("entry")
         val sl = slOf(s)
         val tps = s.tps()
-        val result = s.str("result").uppercase(Locale.US)
         val tpHit = s.optInt("tp_hit", 0)
         val quality = s.str("quality").ifEmpty { s.str("grade") }.uppercase(Locale.US)
         val tf = s.str("timeframe")
         val whenRaw = s.str("created_at").ifEmpty { s.str("time").ifEmpty { s.str("timestamp") } }
         val accent = when (direction) { "BUY" -> GREEN; "SELL" -> RED; else -> MUTED }
 
+        val phase = phaseOf(s, isPending)
+        val pColor = phaseColor(phase)
         val confidence: Int? = confOf(s)
 
         val qColor = when (quality) {
@@ -1184,8 +1295,23 @@ class MainActivity : AppCompatActivity() {
         card.background = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
             intArrayOf(ColorUtils.setAlphaComponent(accent, 0x15), CARD)
-        ).apply { cornerRadius = dpf(14f); setStroke(dp(1), ColorUtils.setAlphaComponent(accent, 0x60)) }
+        ).apply {
+            cornerRadius = dpf(14f)
+            val strokeCol = ColorUtils.setAlphaComponent(if (isPending) pColor else accent, 0x80)
+            if (phase == Phase.WATCH) setStroke(dp(1), strokeCol, dpf(6f), dpf(4f)) // dashed = not a real trade yet
+            else setStroke(dp(1), strokeCol)
+        }
         card.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(12) }
+
+        // ---- Phase banner: always tells you exactly what state this signal is in ----
+        val banner = col()
+        banner.setPadding(dp(10), dp(8), dp(10), dp(8))
+        banner.background = roundedBg(ColorUtils.setAlphaComponent(pColor, 0x22), dpf(10f), ColorUtils.setAlphaComponent(pColor, 0x80))
+        banner.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(12) }
+        banner.addView(makeText(phaseTitle(phase), 12f, pColor, true))
+        val detail = phaseDetail(phase, s, symbol, entry, tps)
+        if (detail.isNotEmpty()) banner.addView(makeText(detail, 11f, SOFT).apply { setPadding(0, dp(3), 0, 0) })
+        card.addView(banner)
 
         val top = row()
         top.gravity = Gravity.CENTER_VERTICAL
@@ -1194,18 +1320,30 @@ class MainActivity : AppCompatActivity() {
         ringCol.gravity = Gravity.CENTER_HORIZONTAL
         val ring = RingView(this)
         ring.ringColor = accent
+        var ringCaption = "Confluence"
 
-        if (!isPending) {
-            if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
-            else { ring.label = "—"; ring.setPercent(0) }
-        } else {
-            ring.label = "0%"
-            ring.setPercent(0)
-            ring.ringColor = GREEN
+        when (phase) {
+            Phase.WATCH -> {
+                ring.ringColor = PURPLE_L
+                if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
+                else { ring.label = "—"; ring.setPercent(0) }
+            }
+            Phase.WAITING -> {
+                ring.ringColor = AMBER; ring.label = "Wait"; ring.setPercent(0)
+                ringCaption = "Proximity"
+            }
+            Phase.ACTIVE -> {
+                ring.ringColor = GREEN; ring.label = "0%"; ring.setPercent(0)
+                ringCaption = "Progress"
+            }
+            else -> {
+                if (confidence != null) { ring.label = "$confidence%"; ring.setPercent(confidence) }
+                else { ring.label = "—"; ring.setPercent(0) }
+            }
         }
 
         ringCol.addView(ring, LinearLayout.LayoutParams(dp(68), dp(68)))
-        ringCol.addView(makeText(if (isPending) "Progress" else "Confluence", 9f, MUTED).apply { gravity = Gravity.CENTER })
+        ringCol.addView(makeText(ringCaption, 9f, MUTED).apply { gravity = Gravity.CENTER })
         top.addView(ringCol)
 
         val info = col()
@@ -1234,54 +1372,85 @@ class MainActivity : AppCompatActivity() {
         pipCol.gravity = Gravity.END
         val pipTv = makeText("—", 20f, MUTED, true)
         pipCol.addView(pipTv)
-        var pipSub = if (isPending) "pips · live" else "pips"
-        if (isPending) {
-            val lastTp = tps.lastOrNull() ?: 0.0
-            livePips.add(LivePip(pipTv, ring, symbol, direction, entry, sl, lastTp))
-        } else {
-            val pr = pipsForSignal(s)
-            if (pr != null) {
-                pipTv.text = fmtPips(pr.pips)
-                pipTv.setTextColor(if (pr.pips >= 0) GREEN else RED)
-                if (pr.estimated) pipSub = "pips · est."
+        val pipSubTv = makeText("pips", 9f, MUTED).apply { gravity = Gravity.END }
+        when (phase) {
+            Phase.WATCH -> {
+                pipTv.text = "WATCH"; pipTv.textSize = 15f; pipTv.setTextColor(PURPLE_L)
+                pipSubTv.text = "not entered"
+            }
+            Phase.WAITING -> {
+                pipSubTv.text = "pips to entry"
+                livePips.add(LivePip(pipTv, pipSubTv, ring, symbol, direction, entry, sl, tps.lastOrNull() ?: Double.NaN, phase))
+            }
+            Phase.ACTIVE -> {
+                pipSubTv.text = "pips · live"
+                livePips.add(LivePip(pipTv, pipSubTv, ring, symbol, direction, entry, sl, tps.lastOrNull() ?: Double.NaN, phase))
+            }
+            else -> {
+                val pr = pipsForSignal(s)
+                if (pr != null) {
+                    pipTv.text = fmtPips(pr.pips)
+                    pipTv.setTextColor(if (pr.pips >= 0) GREEN else RED)
+                    if (pr.estimated) pipSubTv.text = "pips · est."
+                }
             }
         }
-        pipCol.addView(makeText(pipSub, 9f, MUTED).apply { gravity = Gravity.END })
+        pipCol.addView(pipSubTv)
         top.addView(pipCol)
         card.addView(top)
 
         val rr = if (tps.isNotEmpty()) checkLevels(direction, entry, sl, tps[0]).first else null
+        val entryLabel = when (phase) {
+            Phase.WATCH -> "Planned entry"
+            Phase.WAITING -> "Entry zone"
+            else -> "Entry"
+        }
         val row1 = row().apply { setPadding(0, dp(12), 0, 0) }
-        row1.addView(priceBox("Entry", formatPrice(symbol, entry), Color.WHITE, 1f))
+        row1.addView(priceBox(entryLabel, formatPrice(symbol, entry), Color.WHITE, 1f))
         row1.addView(priceBox("Stop Loss", formatPrice(symbol, sl), RED, 1f))
         row1.addView(priceBox("Risk : Reward", rr?.let { String.format(Locale.US, "1 : %.1f", it) } ?: "—", PURPLE_L, 1f))
         card.addView(row1)
 
         if (tps.isNotEmpty()) {
             val row2 = row().apply { setPadding(0, dp(8), 0, 0) }
-            for (k in 0 until minOf(tps.size, 3)) row2.addView(priceBox("TP${k + 1}", formatPrice(symbol, tps[k]), GREEN, 1f))
+            for (k in 0 until minOf(tps.size, 3)) {
+                val hit = k < tpHit
+                val trackHits = phase == Phase.ACTIVE || phase == Phase.WIN || phase == Phase.LOSS || phase == Phase.CLOSED
+                val label = if (trackHits && hit) "TP${k + 1} ✓" else "TP${k + 1}"
+                val labelColor = if (trackHits && hit) GREEN else MUTED
+                val valueColor = when {
+                    !trackHits -> GREEN
+                    hit -> GREEN
+                    phase == Phase.ACTIVE -> Color.WHITE
+                    else -> MUTED
+                }
+                row2.addView(priceBox(label, formatPrice(symbol, tps[k]), valueColor, 1f, labelColor))
+            }
             for (k in tps.size until 3) row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
             card.addView(row2)
         }
 
-        if (isPending) {
+        if (isPending && phase != Phase.WATCH) {
             val lotRow = row().apply { setPadding(0, dp(8), 0, 0) }
             lotRow.addView(priceBox("Est. lot size", lotSizeStr, AMBER, 1f))
             lotRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 2f) })
             card.addView(lotRow)
-        } else {
-            // History details: closing price and duration, shown only when the backend provides them.
+        } else if (!isPending) {
+            // History details: closing price, duration and R result, shown only when the backend provides them.
             var exit = Double.NaN
             for (k in listOf("exit_price", "close_price", "closed_price", "exit")) {
                 val v = s.num(k)
                 if (!v.isNaN()) { exit = v; break }
             }
             val dur = durationText(whenRaw, s.str("closed_at"))
-            if (!exit.isNaN() || dur != null) {
+            val rMult = s.num("r_multiple")
+            if (!exit.isNaN() || dur != null || !rMult.isNaN()) {
                 val hr = row().apply { setPadding(0, dp(8), 0, 0) }
                 hr.addView(priceBox("Close", if (exit.isNaN()) "—" else formatPrice(symbol, exit), Color.WHITE, 1f))
                 hr.addView(priceBox("Duration", dur ?: "—", Color.WHITE, 1f))
-                hr.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+                hr.addView(priceBox("Result (R)",
+                    if (rMult.isNaN()) "—" else String.format(Locale.US, "%+.2fR", rMult),
+                    if (rMult.isNaN()) Color.WHITE else if (rMult >= 0) GREEN else RED, 1f))
                 card.addView(hr)
             }
         }
@@ -1318,23 +1487,22 @@ class MainActivity : AppCompatActivity() {
                     val text = when (item) { is String -> item; is JSONObject -> item.str("label").ifEmpty { item.str("text") }; else -> "" }
                     if (text.isNotBlank()) items.add("✓ $text")
                 }
-                if (items.isNotEmpty()) card.addView(makeText(items.joinToString("    "), 10f, Color.parseColor("#C5CBD8")).apply { setPadding(0, dp(10), 0, 0) })
+                if (items.isNotEmpty()) card.addView(makeText(items.joinToString("    "), 10f, SOFT).apply { setPadding(0, dp(10), 0, 0) })
             }
         }
 
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
 
         val backendStatus = s.str("status").uppercase(Locale.US).replace('_', ' ')
-        val statusText = if (isPending) {
-            "● " + backendStatus.ifEmpty { "ACTIVE" }
-        } else if (result.isNotEmpty()) {
-            if (result == "WIN" && tpHit > 0 && tpHit < 3) "● WIN (TP$tpHit)" else "● $result"
-        } else {
-            "● " + backendStatus.ifEmpty { "CLOSED" }
+        val statusText = when (phase) {
+            Phase.WATCH -> "● WATCHLIST"
+            Phase.WAITING -> "● WAITING ENTRY"
+            Phase.ACTIVE -> "● ACTIVE" + if (tpHit > 0) " · TP$tpHit ✓" else ""
+            Phase.WIN -> if (tpHit > 0) "● WIN (TP$tpHit)" else "● WIN"
+            Phase.LOSS -> "● LOSS"
+            Phase.CLOSED -> "● " + backendStatus.ifEmpty { "CLOSED" }
         }
-
-        val statusColor = if (isPending) AMBER else when (result) { "WIN" -> GREEN; "LOSS" -> RED; else -> MUTED }
-        bottom.addView(makeText(statusText, 11f, statusColor, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
+        bottom.addView(makeText(statusText, 11f, pColor, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
         val btnChart = makeText("📈 View Chart", 11f, Color.WHITE, true).apply {
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = roundedBg(ColorUtils.setAlphaComponent(PURPLE, 0x40), dpf(10f), PURPLE)
@@ -1392,7 +1560,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             acc.addView(makeText(
                 "No broker account connected, so equity, drawdown and open positions are not available. Tap ⚙ to enter a balance for position sizing only.",
-                12f, Color.parseColor("#C5CBD8")
+                12f, SOFT
             ))
         }
         val (d, w, m) = periodPips()
@@ -1407,11 +1575,13 @@ class MainActivity : AppCompatActivity() {
 
         // ---- AI intelligence overview ----
         val ai = homeCard("AI INTELLIGENCE")
+        val (nActive, nWaiting, nWatch) = phaseCounts(allPending)
         var buys = 0; var sells = 0
         var best: JSONObject? = null
         var bestC = -1
         for (i in 0 until allPending.length()) {
             val o = allPending.optJSONObject(i) ?: continue
+            if (phaseOf(o, true) == Phase.WATCH) continue // watchlist isn't tradable, so it doesn't count toward bias or "strongest"
             val dir = o.str("direction").uppercase(Locale.US)
             if (dir == "BUY") buys++ else if (dir == "SELL") sells++
             val c = confOf(o) ?: -1
@@ -1419,10 +1589,14 @@ class MainActivity : AppCompatActivity() {
         }
         val total = buys + sells
         val line1 = row()
-        line1.addView(priceBox("Active setups", allPending.length().toString(), Color.WHITE, 1f))
-        line1.addView(priceBox("Buy / Sell", "$buys / $sells", Color.WHITE, 1f))
-        line1.addView(priceBox("Session", sessionShort, PURPLE_L, 1f))
+        line1.addView(priceBox("Active trades", nActive.toString(), if (nActive > 0) GREEN else Color.WHITE, 1f))
+        line1.addView(priceBox("Waiting entry", nWaiting.toString(), if (nWaiting > 0) AMBER else Color.WHITE, 1f))
+        line1.addView(priceBox("Watchlist", nWatch.toString(), if (nWatch > 0) PURPLE_L else Color.WHITE, 1f))
         ai.addView(line1)
+        val line1b = row().apply { setPadding(0, dp(8), 0, 0) }
+        line1b.addView(priceBox("Buy / Sell", "$buys / $sells", Color.WHITE, 1f))
+        line1b.addView(priceBox("Session", sessionShort, PURPLE_L, 2f))
+        ai.addView(line1b)
         if (total > 0) {
             val bar = row()
             bar.layoutParams = LinearLayout.LayoutParams(MATCH, dp(8)).also { it.topMargin = dp(10); it.bottomMargin = dp(4) }
@@ -1439,15 +1613,23 @@ class MainActivity : AppCompatActivity() {
         line2.addView(priceBox("Strongest setup", strongest, if (b != null) GREEN else MUTED, 2f))
         line2.addView(priceBox("AI scan", if (hasData) "Scanning · $lastOkTime" else "Offline", if (hasData) GREEN else RED, 1.4f))
         ai.addView(line2)
-        ai.addView(makeText("Bias shows only the direction mix of active setups, not a market forecast.", 9f, MUTED).apply { setPadding(0, dp(6), 0, 0) })
+        ai.addView(makeText("Bias counts only tradable setups (active + waiting), not the watchlist. It is not a market forecast.", 9f, MUTED).apply { setPadding(0, dp(6), 0, 0) })
 
-        // ---- Best opportunities ----
+        // ---- Best opportunities (tradable setups only, live trades first) ----
         val opp = homeCard("BEST AI OPPORTUNITIES")
         val list = ArrayList<JSONObject>()
-        for (i in 0 until allPending.length()) allPending.optJSONObject(i)?.let { list.add(it) }
-        val top3 = list.sortedByDescending { confOf(it) ?: -1 }.take(3)
+        for (i in 0 until allPending.length()) {
+            val o = allPending.optJSONObject(i) ?: continue
+            if (phaseOf(o, true) != Phase.WATCH) list.add(o)
+        }
+        val top3 = list.sortedWith(
+            compareBy<JSONObject> { if (phaseOf(it, true) == Phase.ACTIVE) 0 else 1 }
+                .thenByDescending { confOf(it) ?: -1 }
+        ).take(3)
         if (top3.isEmpty()) {
-            opp.addView(makeText("No active setups right now. The engine only publishes a signal when conditions are good.", 12f, Color.parseColor("#C5CBD8")))
+            val msg = if (nWatch > 0) "No tradable setups yet. $nWatch setup(s) on the watchlist are still forming. See the Signals tab."
+            else "No active setups right now. The engine only publishes a signal when conditions are good."
+            opp.addView(makeText(msg, 12f, SOFT))
         }
         for (o in top3) {
             val sym = o.str("symbol").uppercase(Locale.US)
@@ -1456,20 +1638,22 @@ class MainActivity : AppCompatActivity() {
             val entry = o.num("entry")
             val sl = slOf(o)
             val tps = o.tps()
+            val ph = phaseOf(o, true)
             val acc2 = if (dir == "BUY") GREEN else if (dir == "SELL") RED else MUTED
             val item = col()
             item.setPadding(dp(10), dp(10), dp(10), dp(10))
-            item.background = roundedBg(Color.parseColor("#1B2130"), dpf(10f), ColorUtils.setAlphaComponent(acc2, 0x60))
+            item.background = roundedBg(Color.parseColor("#1B2130"), dpf(10f), ColorUtils.setAlphaComponent(phaseColor(ph), 0x80))
             item.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP).also { it.bottomMargin = dp(8) }
             val head = row().apply { gravity = Gravity.CENTER_VERTICAL }
             head.addView(makeText(sym, 15f, Color.WHITE, true))
             head.addView(badge(dir, acc2, Color.BLACK))
             if (tf.isNotEmpty()) head.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
             confOf(o)?.let { head.addView(badge("$it%", ColorUtils.setAlphaComponent(PURPLE, 0x55), PURPLE_L)) }
+            head.addView(badge(if (ph == Phase.ACTIVE) "ACTIVE" else "WAITING ENTRY", ColorUtils.setAlphaComponent(phaseColor(ph), 0x40), phaseColor(ph)))
             item.addView(head)
             val rr = if (tps.isNotEmpty()) checkLevels(dir, entry, sl, tps[0]).first else null
             val lv = row().apply { setPadding(0, dp(8), 0, 0) }
-            lv.addView(priceBox("Entry", formatPrice(sym, entry), Color.WHITE, 1f))
+            lv.addView(priceBox(if (ph == Phase.ACTIVE) "Entry" else "Entry zone", formatPrice(sym, entry), Color.WHITE, 1f))
             lv.addView(priceBox("SL", formatPrice(sym, sl), RED, 1f))
             lv.addView(priceBox("TP1", if (tps.isNotEmpty()) formatPrice(sym, tps[0]) else "—", GREEN, 1f))
             lv.addView(priceBox("R:R", rr?.let { String.format(Locale.US, "1:%.1f", it) } ?: "—", PURPLE_L, 1f))
@@ -1603,7 +1787,12 @@ class MainActivity : AppCompatActivity() {
         val dir = o.str("direction").uppercase(Locale.US)
         val tf = o.str("timeframe")
         val tps = o.tps().joinToString(", ") { formatPrice(sym, it) }
-        return "Explain this signal and its risks in plain language: $sym $dir $tf, entry ${formatPrice(sym, o.num("entry"))}, " +
+        val state = when (phaseOf(o, true)) {
+            Phase.WATCH -> "watchlist (still forming, not entered)"
+            Phase.WAITING -> "waiting for entry"
+            else -> "active trade"
+        }
+        return "Explain this signal and its risks in plain language: $sym $dir $tf ($state), entry ${formatPrice(sym, o.num("entry"))}, " +
             "stop loss ${formatPrice(sym, slOf(o))}, take profits $tps."
     }
 
