@@ -51,7 +51,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0B0E14;color:#eee;fon
 <script>
 (function(){
 const $=id=>document.getElementById(id);
-const S={sym:'',key:'',bars:[],smc:null,trade:null,autoTrade:null,rev:0,needFit:false,show:{str:true,ob:true,fvg:true,liq:true,pd:true,kill:true,trade:true}};
+const S={sym:'',key:'',bars:[],smc:null,trade:null,autoTrade:null,rev:0,needFit:false,liveTicks:false,show:{str:true,ob:true,fvg:true,liq:true,pd:true,kill:true,trade:true}};
 const TFL={M1:'1m',M5:'5m',M15:'15m',M30:'30m',H1:'1h',H4:'4h',D1:'1d'};
 const elChart=$('chart'),elRsi=$('rsi'),elVol=$('vol'),cv=$('ov'),ctx=cv.getContext('2d');
 let chart,series,rsiChart,rsiSeries,volChart,volSeries;
@@ -429,6 +429,7 @@ function init(){
 }
 
 window.tick=function(p){
+  if(!S.liveTicks)return;
   if(!series||!S.bars.length)return;
   p=Number(p);if(!Number.isFinite(p))return;
   const bars=S.bars,last=bars[bars.length-1];
