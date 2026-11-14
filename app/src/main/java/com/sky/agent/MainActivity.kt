@@ -168,7 +168,9 @@ class MainActivity : AppCompatActivity() {
 
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
-    private val POLL_MS = 1500L
+
+    // Prices only refresh about once a minute on the backend, so polling every 1.5s just burns requests.
+    private val POLL_MS = 10_000L
     private val DAY_MS = 86_400_000L
 
     private val BG = Color.parseColor("#0B0E14")
@@ -226,6 +228,10 @@ class MainActivity : AppCompatActivity() {
     private var riskPercent = 1.0
     private var sessionShort = "—"
 
+    // "Signals today" counter from the backend (-1 = not received yet)
+    private var dailyCount = -1
+    private var dailyTarget = 3
+
     /** Where a signal is in its life: forming → waiting for entry → live → closed. */
     private enum class Phase { WATCH, WAITING, ACTIVE, WIN, LOSS, CLOSED }
 
@@ -250,7 +256,7 @@ class MainActivity : AppCompatActivity() {
             if (!polling) return
             fetchLive()
             pollCount++
-            if (pollCount % 8 == 0 && chartSection.visibility == View.VISIBLE) loadChart()
+            if (pollCount % 6 == 0 && chartSection.visibility == View.VISIBLE) loadChart()
             handler.postDelayed(this, POLL_MS)
         }
     }
@@ -373,13 +379,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun calculateLotSize(symbol: String, entry: Double, sl: Double): String {
+    /** riskScale = 0.5 for B-grade (relaxed tier) setups, which should be traded at half risk. */
+    private fun calculateLotSize(symbol: String, entry: Double, sl: Double, riskScale: Double = 1.0): String {
         if (accountBalance <= 0) return "Set balance ⚙"
         if (entry.isNaN() || sl.isNaN() || entry == 0.0 || sl == 0.0) return "—"
         val pipsAtRisk = abs(entry - sl) / pipSize(symbol)
         val pv = pipValuePerLot(symbol, entry)
         if (pipsAtRisk <= 0.0 || pv.isNaN() || pv <= 0.0) return "—"
-        val riskAmount = accountBalance * (riskPercent / 100.0)
+        val riskAmount = accountBalance * (riskPercent / 100.0) * riskScale
         val lots = riskAmount / (pipsAtRisk * pv)
         return String.format(Locale.US, "~%.2f lots", lots)
     }
@@ -638,7 +645,7 @@ class MainActivity : AppCompatActivity() {
             return when (s.str("result").uppercase(Locale.US)) {
                 "WIN" -> Phase.WIN
                 "LOSS" -> Phase.LOSS
-                else -> Phase.CLOSED
+                else -> Phase.CLOSED   // includes BREAKEVEN
             }
         }
         if (s.optBoolean("watch", false)) return Phase.WATCH
@@ -677,7 +684,8 @@ class MainActivity : AppCompatActivity() {
             }
             Phase.ACTIVE -> {
                 val steps = tps.indices.take(3).joinToString("  ·  ") { if (it < tpHit) "TP${it + 1} ✓" else "TP${it + 1}" }
-                "Entry filled" + if (steps.isNotEmpty()) "  ·  $steps" else ""
+                val be = if (tpHit >= 1) "  ·  SL at breakeven" else ""
+                "Entry filled" + (if (steps.isNotEmpty()) "  ·  $steps" else "") + be
             }
             Phase.WIN -> if (tpHit > 0) "Closed in profit after reaching TP$tpHit." else "Closed in profit."
             Phase.LOSS -> "Stop loss was hit before any target."
@@ -709,6 +717,14 @@ class MainActivity : AppCompatActivity() {
             if (!v.isNaN()) return PipResult(v, false)
         }
         if (entry.isNaN()) return null
+
+        // Realized R already accounts for partial closes and breakeven, so convert it to pips.
+        val rMultiple = s.num("r_multiple")
+        val slPx = slOf(s)
+        if (!rMultiple.isNaN() && !slPx.isNaN()) {
+            return PipResult(rMultiple * abs(entry - slPx) / pipSize(sym), false)
+        }
+
         for (k in listOf("exit_price", "close_price", "closed_price", "exit")) {
             val v = s.num(k)
             if (!v.isNaN()) return PipResult(pipsOf(sym, dir, entry, v), false)
@@ -827,6 +843,10 @@ class MainActivity : AppCompatActivity() {
             val completed = json.optJSONArray("completed")
             if (pending != null || completed != null) renderSignals(pending ?: JSONArray(), completed ?: JSONArray())
             renderNews(json)
+            json.optJSONObject("daily")?.let {
+                dailyCount = it.optInt("count", -1)
+                dailyTarget = it.optInt("target", 3)
+            }
         } catch (e: Exception) { onFailure("Parse error: ${e.message}"); return }
 
         hasData = true; lastOkTime = nowHms()
@@ -1072,7 +1092,8 @@ class MainActivity : AppCompatActivity() {
             try {
                 val s = URLEncoder.encode(symbol, "UTF-8")
                 val tf = URLEncoder.encode(timeframe, "UTF-8")
-                val endpoint = "$SIGNAL_WORKER_BASE/test-signal?symbol=$s&timeframe=$tf"
+                // /api/chart is public; /test-signal can be locked with ADMIN_KEY without breaking the app.
+                val endpoint = "$SIGNAL_WORKER_BASE/api/chart?symbol=$s&timeframe=$tf"
                 connection = URL(endpoint).openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 8000
@@ -1284,11 +1305,14 @@ class MainActivity : AppCompatActivity() {
         val qColor = when (quality) {
             "HIGH" -> GREEN
             "GOOD" -> PURPLE_L
+            "B-GRADE" -> AMBER
             "STANDARD" -> BLUE
             else -> MUTED
         }
 
-        val lotSizeStr = calculateLotSize(symbol, entry, sl)
+        // B-grade (relaxed tier) setups should be traded at half the normal risk.
+        val halfRisk = quality == "B-GRADE" || s.str("tier").uppercase(Locale.US) == "RELAXED"
+        val lotSizeStr = calculateLotSize(symbol, entry, sl, if (halfRisk) 0.5 else 1.0)
 
         val card = col()
         card.setPadding(dp(14), dp(14), dp(14), dp(12))
@@ -1311,6 +1335,9 @@ class MainActivity : AppCompatActivity() {
         banner.addView(makeText(phaseTitle(phase), 12f, pColor, true))
         val detail = phaseDetail(phase, s, symbol, entry, tps)
         if (detail.isNotEmpty()) banner.addView(makeText(detail, 11f, SOFT).apply { setPadding(0, dp(3), 0, 0) })
+        if (halfRisk && isPending) {
+            banner.addView(makeText("⚠ Lower-confidence (B-grade): use half your normal risk.", 11f, AMBER).apply { setPadding(0, dp(3), 0, 0) })
+        }
         card.addView(banner)
 
         val top = row()
@@ -1432,7 +1459,7 @@ class MainActivity : AppCompatActivity() {
 
         if (isPending && phase != Phase.WATCH) {
             val lotRow = row().apply { setPadding(0, dp(8), 0, 0) }
-            lotRow.addView(priceBox("Est. lot size", lotSizeStr, AMBER, 1f))
+            lotRow.addView(priceBox(if (halfRisk) "Est. lot size (half risk)" else "Est. lot size", lotSizeStr, AMBER, 1f))
             lotRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 2f) })
             card.addView(lotRow)
         } else if (!isPending) {
@@ -1470,12 +1497,14 @@ class MainActivity : AppCompatActivity() {
                 card.addView(r)
             }
 
+            // Maximums match the engine: 20+20+20+15+5+10+10 = 100
             addBreakdownRow("HTF alignment", breakdown.optInt("htf", 0), 20)
             addBreakdownRow("Liquidity", breakdown.optInt("liquidity", 0), 20)
             addBreakdownRow("Market structure", breakdown.optInt("structure", 0), 20)
             addBreakdownRow("FVG / OB confirmation", breakdown.optInt("fvg_ob", 0), 15)
-            addBreakdownRow("Supply / Demand Zone", breakdown.optInt("supply_demand", 0), 15)
-            addBreakdownRow("Session and news", breakdown.optInt("session", 0), 10)
+            addBreakdownRow("Supply / Demand bonus", breakdown.optInt("supply_demand", 0), 5)
+            addBreakdownRow("Premium / Discount", breakdown.optInt("premium_discount", 0), 10)
+            addBreakdownRow("Session", breakdown.optInt("session", 0), 10)
 
             card.addView(makeText("Confluence score only, not a prediction or measured win probability.", 9f, MUTED).apply { setPadding(0, dp(8), 0, 0) })
         } else {
@@ -1494,13 +1523,14 @@ class MainActivity : AppCompatActivity() {
         val bottom = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, 0) }
 
         val backendStatus = s.str("status").uppercase(Locale.US).replace('_', ' ')
+        val resultText = s.str("result").uppercase(Locale.US)
         val statusText = when (phase) {
             Phase.WATCH -> "● WATCHLIST"
             Phase.WAITING -> "● WAITING ENTRY"
             Phase.ACTIVE -> "● ACTIVE" + if (tpHit > 0) " · TP$tpHit ✓" else ""
             Phase.WIN -> if (tpHit > 0) "● WIN (TP$tpHit)" else "● WIN"
             Phase.LOSS -> "● LOSS"
-            Phase.CLOSED -> "● " + backendStatus.ifEmpty { "CLOSED" }
+            Phase.CLOSED -> "● " + resultText.ifEmpty { backendStatus.ifEmpty { "CLOSED" } }
         }
         bottom.addView(makeText(statusText, 11f, pColor, true).apply { layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f) })
         val btnChart = makeText("📈 View Chart", 11f, Color.WHITE, true).apply {
@@ -1571,7 +1601,7 @@ class MainActivity : AppCompatActivity() {
         perf.addView(priceBox("7 days (pips)", pv(w), pc(w), 1f))
         perf.addView(priceBox("30 days (pips)", pv(m), pc(m), 1f))
         acc.addView(perf)
-        acc.addView(makeText("Pips come from closed signal history (some are estimated).", 9f, MUTED).apply { setPadding(0, dp(6), 0, 0) })
+        acc.addView(makeText("Pips come from closed signal history, after partial closes and breakeven.", 9f, MUTED).apply { setPadding(0, dp(6), 0, 0) })
 
         // ---- AI intelligence overview ----
         val ai = homeCard("AI INTELLIGENCE")
@@ -1595,6 +1625,12 @@ class MainActivity : AppCompatActivity() {
         ai.addView(line1)
         val line1b = row().apply { setPadding(0, dp(8), 0, 0) }
         line1b.addView(priceBox("Buy / Sell", "$buys / $sells", Color.WHITE, 1f))
+        line1b.addView(priceBox(
+            "Signals today",
+            if (dailyCount >= 0) "$dailyCount / $dailyTarget" else "—",
+            if (dailyCount >= dailyTarget) GREEN else AMBER,
+            1f
+        ))
         line1b.addView(priceBox("Session", sessionShort, PURPLE_L, 2f))
         ai.addView(line1b)
         if (total > 0) {
@@ -1648,7 +1684,9 @@ class MainActivity : AppCompatActivity() {
             head.addView(makeText(sym, 15f, Color.WHITE, true))
             head.addView(badge(dir, acc2, Color.BLACK))
             if (tf.isNotEmpty()) head.addView(badge(TF_LABELS[tfKey(tf) ?: ""] ?: tf, Color.parseColor("#2A3449"), Color.WHITE))
-            confOf(o)?.let { head.addView(badge("$it%", ColorUtils.setAlphaComponent(PURPLE, 0x55), PURPLE_L)) }
+            val q = o.str("quality").uppercase(Locale.US)
+            if (q == "B-GRADE") head.addView(badge("B-GRADE", ColorUtils.setAlphaComponent(AMBER, 0x40), AMBER))
+            else confOf(o)?.let { head.addView(badge("$it%", ColorUtils.setAlphaComponent(PURPLE, 0x55), PURPLE_L)) }
             head.addView(badge(if (ph == Phase.ACTIVE) "ACTIVE" else "WAITING ENTRY", ColorUtils.setAlphaComponent(phaseColor(ph), 0x40), phaseColor(ph)))
             item.addView(head)
             val rr = if (tps.isNotEmpty()) checkLevels(dir, entry, sl, tps[0]).first else null
@@ -1770,7 +1808,7 @@ class MainActivity : AppCompatActivity() {
         "Analyse XAUUSD" ->
             "Analyse XAUUSD with Smart Money Concepts on M15 with H1/H4 context: structure, key levels, and whether a trade is justified. Say NO TRADE if conditions are poor."
         "Scan All Markets" ->
-            "Scan XAUUSD, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD and NZDUSD. Rank them by setup quality and say NO TRADE where conditions are poor."
+            "Scan XAUUSD, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF and NZDUSD. Rank them by setup quality and say NO TRADE where conditions are poor."
         "Find High-Quality Setups" ->
             "List only high-quality SMC setups right now with entry, stop loss, take profits and reasons. If there are none, say so."
         "Explain Latest Signal" -> latestSignalPrompt()
