@@ -51,6 +51,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.sky.agent.R
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -169,6 +170,10 @@ class MainActivity : AppCompatActivity() {
     private val BACKEND_BASE = "https://sky-ai-backend.i96463073.workers.dev"
     private val SIGNAL_WORKER_BASE = "https://sky-ai-backend.i96463073.workers.dev"
 
+    // Must match the BRAIN_KEY secret you set in Cloudflare. It lets you teach the brain and pause pairs.
+    // Leave it empty and the brain still answers questions, but will refuse to change its memory.
+    private val BRAIN_KEY = ""
+
     // Prices only refresh about once a minute on the backend, so polling every 1.5s just burns requests.
     private val POLL_MS = 10_000L
     private val DAY_MS = 86_400_000L
@@ -256,6 +261,7 @@ class MainActivity : AppCompatActivity() {
             if (!polling) return
             fetchLive()
             pollCount++
+            if (pollCount % 60 == 1) syncBrain()   // about every 10 minutes
             if (pollCount % 6 == 0 && chartSection.visibility == View.VISIBLE) loadChart()
             handler.postDelayed(this, POLL_MS)
         }
@@ -1781,6 +1787,40 @@ class MainActivity : AppCompatActivity() {
         tvSessionShort.text = sessionShort
     }
 
+    // ---------------- Brain copy on the phone ----------------
+
+    private fun brainFile() = File(filesDir, "sky_brain.json")
+
+    /** Saves a copy of what the brain has learned to the phone's private storage. */
+    private fun syncBrain() {
+        thread {
+            try {
+                val r = httpGet("/api/brain")
+                if (r.first in 200..299 && JSONObject(r.second).optBoolean("ok", false)) brainFile().writeText(r.second)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /** Used when there is no connection: answers from the saved copy. */
+    private fun offlineBrainReply(): String? {
+        return try {
+            val f = brainFile()
+            if (!f.exists()) return null
+            val j = JSONObject(f.readText())
+            val lines = ArrayList<String>()
+            lines.add("You're offline. This is the copy saved on your phone (updated ${j.optString("updatedAt", "unknown")}):")
+            val lessons = j.optJSONArray("lessons")
+            if (lessons != null) for (i in 0 until minOf(lessons.length(), 6)) lines.add("• " + lessons.optString(i))
+            val notes = j.optJSONArray("notes")
+            if (notes != null && notes.length() > 0) {
+                lines.add("")
+                lines.add("Your notes:")
+                for (i in 0 until minOf(notes.length(), 8)) lines.add("• " + notes.getJSONObject(i).optString("text"))
+            }
+            lines.joinToString("\n")
+        } catch (_: Exception) { null }
+    }
+
     // ---------------- AI chat ----------------
 
     private fun buildChatQuick() {
@@ -1849,13 +1889,14 @@ class MainActivity : AppCompatActivity() {
                 val c = URL("$BACKEND_BASE/chat").openConnection() as HttpURLConnection
                 c.requestMethod = "POST"; c.connectTimeout = 15000; c.readTimeout = 60000; c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                if (BRAIN_KEY.isNotEmpty()) c.setRequestProperty("X-Sky-Key", BRAIN_KEY)
                 c.outputStream.use { it.write(JSONObject().put("message", text).toString().toByteArray(Charsets.UTF_8)) }
                 val code = c.responseCode
                 val s = if (code in 200..299) c.inputStream else c.errorStream
                 val body = s?.bufferedReader()?.use { it.readText() } ?: ""
                 c.disconnect()
                 if (code in 200..299) extractReply(body) else "Server Error: $code"
-            } catch (e: Exception) { "Network Error: ${e.message}" }
+            } catch (e: Exception) { offlineBrainReply() ?: "Network Error: ${e.message}" }
 
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
