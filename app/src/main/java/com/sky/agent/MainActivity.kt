@@ -316,6 +316,7 @@ class MainActivity : AppCompatActivity() {
         navChat.setOnClickListener {
             val open = chatPanel.visibility != View.VISIBLE
             chatPanel.visibility = if (open) View.VISIBLE else View.GONE
+            if (open) expandChat()
             navChat.setTextColor(if (open) PURPLE_L else MUTED)
         }
 
@@ -801,10 +802,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun httpGet(path: String): Pair<Int, String> {
+    private fun httpGet(path: String, readMs: Int = 8000): Pair<Int, String> {
         val c = URL(BACKEND_BASE + path).openConnection() as HttpURLConnection
         try {
-            c.requestMethod = "GET"; c.connectTimeout = 8000; c.readTimeout = 8000
+            c.requestMethod = "GET"; c.connectTimeout = 8000; c.readTimeout = readMs
             c.setRequestProperty("Accept", "application/json")
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
@@ -1821,12 +1822,85 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) { null }
     }
 
+    // ---------------- Bigger chat + marked chart pictures ----------------
+
+    /** Gives the chat about 45% of the screen height instead of the small default. */
+    private fun expandChat() {
+        val lp = chatScroll.layoutParams ?: return
+        lp.height = (resources.displayMetrics.heightPixels * 0.45).toInt()
+        chatScroll.layoutParams = lp
+    }
+
+    private fun addImageButton(path: String) {
+        val b = makeText("🖼  Open marked chart", 14f, Color.WHITE, true).apply {
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = roundedBg(ColorUtils.setAlphaComponent(PURPLE, 0x55), dpf(14f), PURPLE)
+            layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).also { it.gravity = Gravity.START; it.bottomMargin = dp(8) }
+        }
+        applyBounce(b)
+        b.setOnClickListener { showImageDialog(path) }
+        chatContainer.addView(b)
+        scrollChatToBottom()
+    }
+
+    /** Full-screen viewer for the explained trade picture. Pinch to zoom. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun showImageDialog(path: String) {
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val frame = FrameLayout(this).apply { setBackgroundColor(BG) }
+        val wv = WebView(this).apply {
+            setBackgroundColor(BG)
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+        }
+        val loader = ProgressBar(this)
+        val note = makeText("Drawing the chart…", 13f, SOFT).apply {
+            gravity = Gravity.CENTER; setPadding(dp(22), dp(70), dp(22), dp(20))
+        }
+        val close = makeText("✕", 22f, Color.WHITE, true).apply {
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+            background = roundedBg(ColorUtils.setAlphaComponent(Color.BLACK, 0xAA), dpf(20f))
+            setOnClickListener { dialog.dismiss() }
+        }
+        frame.addView(wv, FrameLayout.LayoutParams(MATCH, MATCH))
+        frame.addView(loader, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER))
+        frame.addView(note, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+        frame.addView(close, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END).also { it.topMargin = dp(36); it.marginEnd = dp(12) })
+        dialog.setContentView(frame)
+        dialog.setOnDismissListener { try { wv.destroy() } catch (_: Exception) {} }
+        dialog.show()
+
+        thread {
+            var body = ""
+            var err: String? = null
+            try {
+                val r = httpGet(path, 30000)
+                if (r.first in 200..299 && r.second.trimStart().startsWith("<svg")) body = r.second
+                else err = "Couldn't draw the chart (HTTP ${r.first}). ${r.second.take(160)}"
+            } catch (e: Exception) { err = e.message ?: "Network error" }
+            runOnUiThread {
+                loader.visibility = View.GONE
+                if (!dialog.isShowing) return@runOnUiThread
+                if (err != null) { note.text = err; note.setTextColor(AMBER) }
+                else {
+                    note.visibility = View.GONE
+                    val html = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1, minimum-scale=0.5, maximum-scale=6, user-scalable=yes'></head>" +
+                        "<body style='margin:0;background:#0B0E14'>$body</body></html>"
+                    wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                }
+            }
+        }
+    }
+
     // ---------------- AI chat ----------------
 
     private fun buildChatQuick() {
         val items = listOf(
             "Analyse XAUUSD", "Scan All Markets", "Find High-Quality Setups",
-            "Explain Latest Signal", "Analyse Market Structure", "Review Performance"
+            "Explain Latest Signal", "Show Trade Chart", "Analyse Market Structure", "Review Performance"
         )
         for (label in items) {
             val c = makeText(label, 11f, Color.WHITE, true).apply {
@@ -1852,6 +1926,7 @@ class MainActivity : AppCompatActivity() {
         "Find High-Quality Setups" ->
             "List only high-quality SMC setups right now with entry, stop loss, take profits and reasons. If there are none, say so."
         "Explain Latest Signal" -> latestSignalPrompt()
+        "Show Trade Chart" -> "Show me the marked chart of the latest trade with explanations."
         "Analyse Market Structure" ->
             "Analyse the current market structure (BOS, CHoCH, liquidity, order blocks) for $selectedSymbol on ${TF_LABELS[selectedTf] ?: selectedTf}."
         "Review Performance" ->
@@ -1879,6 +1954,7 @@ class MainActivity : AppCompatActivity() {
         if (text.isEmpty()) return
         if (override == null) etInput.setText("")
         chatPanel.visibility = View.VISIBLE
+        expandChat()
         navChat.setTextColor(PURPLE_L)
         addBubble(text, isUser = true)
         val typing = addBubble("SKY AI is thinking…", isUser = false)
@@ -1900,7 +1976,11 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                typing.text = reply; btnSend.isEnabled = true; scrollChatToBottom()
+                val marker = Regex("\\[\\[IMAGE:(.+?)\\]\\]").find(reply)
+                typing.text = if (marker != null) reply.replace(marker.value, "").trim() else reply
+                btnSend.isEnabled = true
+                if (marker != null) addImageButton(marker.groupValues[1])
+                scrollChatToBottom()
             }
         }
     }
