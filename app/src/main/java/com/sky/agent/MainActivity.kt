@@ -297,7 +297,7 @@ class MainActivity : AppCompatActivity() {
         applyBounce(btnRefresh); applyBounce(btnSend); applyBounce(tvCloseChat)
         btnRefresh.setOnClickListener { fetchLive(manual = true); loadChart() }
         btnSend.setOnClickListener { sendChat() }
-        tvCloseChat.setOnClickListener { chatPanel.visibility = View.GONE; navChat.setTextColor(MUTED) }
+        tvCloseChat.setOnClickListener { setChatOpen(false) }
         etInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendChat(); true } else false
         }
@@ -314,10 +314,7 @@ class MainActivity : AppCompatActivity() {
         navCharts.setOnClickListener { showTab(Tab.CHART) }
         navHistory.setOnClickListener { showTab(Tab.HISTORY) }
         navChat.setOnClickListener {
-            val open = chatPanel.visibility != View.VISIBLE
-            chatPanel.visibility = if (open) View.VISIBLE else View.GONE
-            if (open) expandChat()
-            navChat.setTextColor(if (open) PURPLE_L else MUTED)
+            setChatOpen(!chatOpen)
         }
 
         addEmptyText(pendingContainer, "Connecting to backend…")
@@ -511,6 +508,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTab(t: Tab) {
+        if (chatOpen) setChatOpen(false)
         if (t == Tab.CHART) {
             chartSection.visibility = View.VISIBLE
             scrollMain.visibility = View.GONE
@@ -1824,11 +1822,37 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Bigger chat + marked chart pictures ----------------
 
-    /** Gives the chat about 45% of the screen height instead of the small default. */
-    private fun expandChat() {
-        val lp = chatScroll.layoutParams ?: return
-        lp.height = (resources.displayMetrics.heightPixels * 0.45).toInt()
-        chatScroll.layoutParams = lp
+    private var chatOpen = false
+    private var savedScrollVis = View.VISIBLE
+    private var savedChartVis = View.GONE
+
+    /**
+     * Opens the chat as a big panel that fills the whole area under the prices (the Home/Signals/Chart
+     * content is hidden while you chat), or closes it and brings that content back.
+     */
+    private fun setChatOpen(open: Boolean) {
+        if (open == chatOpen) { if (open) chatPanel.visibility = View.VISIBLE; return }
+        chatOpen = open
+        if (open) {
+            savedScrollVis = scrollMain.visibility
+            savedChartVis = chartSection.visibility
+            scrollMain.visibility = View.GONE
+            chartSection.visibility = View.GONE
+            chatPanel.visibility = View.VISIBLE
+            val lp = chatPanel.layoutParams
+            if (lp is LinearLayout.LayoutParams) { lp.height = 0; lp.weight = 1f }
+            else if (lp != null) lp.height = (resources.displayMetrics.heightPixels * 0.7).toInt()
+            if (lp != null) chatPanel.layoutParams = lp
+            val slp = chatScroll.layoutParams
+            if (slp is LinearLayout.LayoutParams) { slp.height = 0; slp.weight = 1f; chatScroll.layoutParams = slp }
+            navChat.setTextColor(PURPLE_L)
+            scrollChatToBottom()
+        } else {
+            chatPanel.visibility = View.GONE
+            scrollMain.visibility = savedScrollVis
+            chartSection.visibility = savedChartVis
+            navChat.setTextColor(MUTED)
+        }
     }
 
     private fun addImageButton(path: String) {
@@ -1953,9 +1977,7 @@ class MainActivity : AppCompatActivity() {
         val text = (override ?: etInput.text.toString()).trim()
         if (text.isEmpty()) return
         if (override == null) etInput.setText("")
-        chatPanel.visibility = View.VISIBLE
-        expandChat()
-        navChat.setTextColor(PURPLE_L)
+        setChatOpen(true)
         addBubble(text, isUser = true)
         val typing = addBubble("SKY AI is thinking…", isUser = false)
         btnSend.isEnabled = false
