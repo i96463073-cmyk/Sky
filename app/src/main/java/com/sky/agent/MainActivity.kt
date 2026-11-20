@@ -1822,6 +1822,9 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Bigger chat + marked chart pictures ----------------
 
+    // The last few messages are sent with each question so follow-ups ("what about 4 hour?") make sense.
+    private val chatHistory = ArrayList<Pair<String, String>>()
+
     private var chatOpen = false
     private var savedScrollVis = View.VISIBLE
     private var savedChartVis = View.GONE
@@ -1982,13 +1985,16 @@ class MainActivity : AppCompatActivity() {
         val typing = addBubble("SKY AI is thinking…", isUser = false)
         btnSend.isEnabled = false
 
+        val histJson = JSONArray()
+        for ((role, content) in chatHistory.takeLast(8)) histJson.put(JSONObject().put("role", role).put("content", content.take(600)))
+
         thread {
             val reply: String = try {
                 val c = URL("$BACKEND_BASE/chat").openConnection() as HttpURLConnection
                 c.requestMethod = "POST"; c.connectTimeout = 15000; c.readTimeout = 60000; c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 if (BRAIN_KEY.isNotEmpty()) c.setRequestProperty("X-Sky-Key", BRAIN_KEY)
-                c.outputStream.use { it.write(JSONObject().put("message", text).toString().toByteArray(Charsets.UTF_8)) }
+                c.outputStream.use { it.write(JSONObject().put("message", text).put("history", histJson).toString().toByteArray(Charsets.UTF_8)) }
                 val code = c.responseCode
                 val s = if (code in 200..299) c.inputStream else c.errorStream
                 val body = s?.bufferedReader()?.use { it.readText() } ?: ""
@@ -1999,7 +2005,11 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 val marker = Regex("\\[\\[IMAGE:(.+?)\\]\\]").find(reply)
-                typing.text = if (marker != null) reply.replace(marker.value, "").trim() else reply
+                val shown = if (marker != null) reply.replace(marker.value, "").trim() else reply
+                typing.text = shown
+                chatHistory.add("user" to text)
+                chatHistory.add("assistant" to shown)
+                while (chatHistory.size > 12) chatHistory.removeAt(0)
                 btnSend.isEnabled = true
                 if (marker != null) addImageButton(marker.groupValues[1])
                 scrollChatToBottom()
@@ -2032,3 +2042,4 @@ class MainActivity : AppCompatActivity() {
 
     private fun scrollChatToBottom() { chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) } }
 }
+ 
